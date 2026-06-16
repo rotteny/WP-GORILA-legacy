@@ -1,0 +1,42 @@
+# Laradock — clonado pelo setup.sh, não versionar
+/laradock/
+
+# Sessão e credenciais do Baileys — NUNCA comitar
+/whatsapp-service/auth_info_baileys/
+!/whatsapp-service/auth_info_baileys/.gitkeep
+
+# Node
+**/node_modules/
+**/npm-debug.log*
+**/yarn-error.log
+
+# PHP / Laravel
+/laravel/vendor/
+/laravel/storage/logs/*
+!/laravel/storage/logs/.gitkeep
+/laravel/storage/framework/cache/*
+!/laravel/storage/framework/cache/.gitkeep
+/laravel/storage/framework/sessions/*
+!/laravel/storage/framework/sessions/.gitkeep
+/laravel/storage/framework/views/*
+!/laravel/storage/framework/views/.gitkeep
+/laravel/bootstrap/cache/*
+!/laravel/bootstrap/cache/.gitkeep
+
+# Vite build output (regerado por npm run build)
+/laravel/public/build/
+/laravel/public/hot
+
+# Arquivos de ambiente
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Editor / OS / IA helpers
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+*.log

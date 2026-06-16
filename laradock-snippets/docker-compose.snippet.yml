@@ -1,0 +1,27 @@
+# =====================================================================
+# Snippet que o setup.sh anexa ao final do bloco `services:` do
+# docker-compose.yml do Laradock.
+# =====================================================================
+
+### WhatsApp Service (Baileys) ############################
+    whatsapp-service:
+      build:
+        context: ../whatsapp-service
+        dockerfile: Dockerfile
+      container_name: whatsapp-service
+      restart: unless-stopped
+      working_dir: /usr/src/app
+      environment:
+        - PORT=3000
+        - LARAVEL_WEBHOOK_URL=http://nginx/api/whatsapp/webhook
+        - AUTH_DIR=/usr/src/app/auth_info_baileys
+      volumes:
+        # Sessão Baileys persistida no host — sobrevive a `compose down`.
+        - ../whatsapp-service/auth_info_baileys:/usr/src/app/auth_info_baileys
+      ports:
+        # Exposto só em localhost pra debug. Laravel acessa via rede docker.
+        - "127.0.0.1:3020:3000"
+      networks:
+        - backend
+      depends_on:
+        - nginx
