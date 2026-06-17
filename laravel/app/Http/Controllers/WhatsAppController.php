@@ -48,6 +48,85 @@ class WhatsAppController extends Controller
         ]);
     }
 
+    public function listChats(): JsonResponse
+    {
+        return $this->proxyGet('/chats');
+    }
+
+    public function chatMessages(string $jid): JsonResponse
+    {
+        return $this->proxyGet('/chats/' . urlencode($jid) . '/messages');
+    }
+
+    public function sendMedia(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'caption' => 'nullable|string|max:1024',
+            'file'    => 'required|file|max:25600', // 25 MB
+        ]);
+
+        $baseUrl = config('services.whatsapp.url', env('WHATSAPP_SERVICE_URL', 'http://whatsapp-service:3000'));
+        $file = $request->file('file');
+
+        try {
+            $response = Http::timeout(60)
+                ->attach(
+                    'file',
+                    file_get_contents($file->getRealPath()),
+                    $file->getClientOriginalName(),
+                    ['Content-Type' => $file->getMimeType() ?: 'application/octet-stream'],
+                )
+                ->post($baseUrl . '/send-media', array_filter([
+                    'jid'     => $data['jid']     ?? null,
+                    'number'  => $data['number']  ?? null,
+                    'caption' => $data['caption'] ?? null,
+                ]));
+
+            return response()->json($response->json(), $response->status());
+        } catch (\Throwable $e) {
+            Log::error('Falha ao enviar mídia pro whatsapp-service', ['error' => $e->getMessage()]);
+            return response()->json([
+                'ok'    => false,
+                'error' => 'whatsapp-service indisponível',
+            ], 502);
+        }
+    }
+
+    public function media(string $messageId)
+    {
+        $baseUrl = config('services.whatsapp.url', env('WHATSAPP_SERVICE_URL', 'http://whatsapp-service:3000'));
+        try {
+            $response = Http::timeout(30)->get($baseUrl . '/media/' . urlencode($messageId));
+
+            if (!$response->successful()) {
+                return response()->json($response->json() ?? ['ok' => false], $response->status());
+            }
+
+            return response($response->body(), 200)
+                ->withHeaders([
+                    'Content-Type'  => $response->header('Content-Type') ?? 'application/octet-stream',
+                    'Cache-Control' => 'public, max-age=3600',
+                ]);
+        } catch (\Throwable $e) {
+            Log::error('Falha ao proxiar mídia', ['error' => $e->getMessage()]);
+            return response()->json(['ok' => false, 'error' => 'whatsapp-service indisponível'], 502);
+        }
+    }
+
+    private function proxyGet(string $path): JsonResponse
+    {
+        $baseUrl = config('services.whatsapp.url', env('WHATSAPP_SERVICE_URL', 'http://whatsapp-service:3000'));
+        try {
+            $response = Http::timeout(10)->acceptJson()->get($baseUrl . $path);
+            return response()->json($response->json(), $response->status());
+        } catch (\Throwable $e) {
+            Log::error('Falha ao proxiar GET ' . $path, ['error' => $e->getMessage()]);
+            return response()->json(['ok' => false, 'error' => 'whatsapp-service indisponível'], 502);
+        }
+    }
+
     public function reset(): JsonResponse
     {
         $baseUrl = config('services.whatsapp.url', env('WHATSAPP_SERVICE_URL', 'http://whatsapp-service:3000'));

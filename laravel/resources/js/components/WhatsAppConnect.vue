@@ -12,6 +12,9 @@
       <p v-if="lastEventAt" class="wa-meta">
         Última atualização: {{ formatDate(lastEventAt) }}
       </p>
+      <p style="margin-top:1rem;">
+        <a href="/chat" class="wa-link">Abrir conversas →</a>
+      </p>
     </div>
 
     <div v-else-if="hasQr" class="wa-state wa-state--pending">
@@ -206,4 +209,14 @@ export default {
   opacity: .6;
   cursor: not-allowed;
 }
+.wa-link {
+  display: inline-block;
+  padding: .5rem 1rem;
+  background: #008069;
+  color: #fff;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+}
+.wa-link:hover { background: #006e57; }
 </style>
