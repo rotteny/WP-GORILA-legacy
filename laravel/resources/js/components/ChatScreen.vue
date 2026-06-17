@@ -3,8 +3,12 @@
     <!-- COLUNA ESQUERDA: lista de conversas -->
     <aside class="wa-side">
       <header class="wa-side__header">
-        <h2>Conversas</h2>
-        <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
+        <div class="wa-side__header-top">
+          <a href="/" class="wa-back">← Projetos</a>
+          <h2>Conversas</h2>
+          <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
+        </div>
+        <div v-if="projectName" class="wa-side__project">{{ projectName }}</div>
       </header>
 
       <div class="wa-side__list">
@@ -193,9 +197,17 @@ const POLL_MS = 3000;
 export default {
   name: 'ChatScreen',
 
+  props: {
+    instanceSlug: {
+      type: String,
+      required: true,
+    },
+  },
+
   data() {
     return {
       status: null,
+      projectName: null,
       chats: [],
       activeJid: null,
       messages: [],
@@ -243,6 +255,9 @@ export default {
       // Bloqueia newsletter/broadcast (não dá pra responder) e tipos desconhecidos.
       return ['private', 'private_lid', 'group'].includes(this.activeChatType);
     },
+    apiBase() {
+      return `/api/whatsapp/instances/${this.instanceSlug}`;
+    },
   },
 
   mounted() {
@@ -268,15 +283,16 @@ export default {
 
     async fetchStatus() {
       try {
-        const { data } = await axios.get('/api/whatsapp/status');
+        const { data } = await axios.get(`${this.apiBase}/status`);
         this.status = data.status;
+        this.projectName = data.name || null;
       } catch (_) { /* silencioso */ }
     },
 
     async fetchChats() {
       this.loadingChats = true;
       try {
-        const { data } = await axios.get('/api/whatsapp/chats');
+        const { data } = await axios.get(`${this.apiBase}/chats`);
         this.chats = data.chats || [];
       } catch (e) {
         console.error('Erro ao carregar conversas:', e);
@@ -288,7 +304,7 @@ export default {
     async fetchMessages(jid) {
       this.loadingMessages = true;
       try {
-        const { data } = await axios.get(`/api/whatsapp/chats/${encodeURIComponent(jid)}/messages`);
+        const { data } = await axios.get(`${this.apiBase}/chats/${encodeURIComponent(jid)}/messages`);
         this.messages = data.messages || [];
         this.$nextTick(() => this.scrollToBottom());
       } catch (e) {
@@ -327,13 +343,13 @@ export default {
           if (text) form.append('caption', text);
           form.append('file', this.pendingFile, this.pendingFile.name);
 
-          await axios.post('/api/whatsapp/send-media', form, {
+          await axios.post(`${this.apiBase}/send-media`, form, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
           this.clearFile();
         } else {
           // ENVIO DE TEXTO — json
-          await axios.post('/api/whatsapp/send-message', {
+          await axios.post(`${this.apiBase}/send-message`, {
             ...this.targetPayloadFields(),
             message: text,
           });
@@ -455,7 +471,7 @@ export default {
     },
 
     mediaUrl(m) {
-      return `/api/whatsapp/media/${encodeURIComponent(m.whatsapp_message_id)}`;
+      return `${this.apiBase}/media/${encodeURIComponent(m.whatsapp_message_id)}`;
     },
 
     onMediaError(event, m) {
@@ -487,14 +503,33 @@ export default {
   flex-direction: column;
 }
 .wa-side__header {
-  padding: 16px;
+  padding: 12px 16px;
   background: #f0f2f5;
   border-bottom: 1px solid #d1d7db;
+}
+.wa-side__header-top {
   display: flex;
   align-items: center;
+  gap: 10px;
   justify-content: space-between;
+  flex-wrap: wrap;
 }
-.wa-side__header h2 { margin: 0; font-size: 18px; }
+.wa-side__header h2 { margin: 0; font-size: 18px; flex: 1; }
+.wa-side__project {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #54656f;
+}
+.wa-back {
+  font-size: 12px;
+  color: #54656f;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.wa-back:hover {
+  color: #1e293b;
+  text-decoration: underline;
+}
 .wa-side__status {
   font-size: 12px;
   padding: 2px 8px;

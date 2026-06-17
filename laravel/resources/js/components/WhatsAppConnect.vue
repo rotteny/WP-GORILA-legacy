@@ -1,6 +1,11 @@
 <template>
   <div class="wa-connect">
-    <h2>Conexão WhatsApp</h2>
+    <header class="wa-connect__header">
+      <a href="/" class="wa-back">← Projetos</a>
+      <h2 class="wa-connect__title">
+        Conexão WhatsApp<span v-if="projectName"> — {{ projectName }}</span>
+      </h2>
+    </header>
 
     <div v-if="loading && !status" class="wa-state wa-state--loading">
       Carregando status...
@@ -13,7 +18,7 @@
         Última atualização: {{ formatDate(lastEventAt) }}
       </p>
       <p style="margin-top:1rem;">
-        <a href="/chat" class="wa-link">Abrir conversas →</a>
+        <a :href="`/p/${instanceSlug}/chat`" class="wa-link">Abrir conversas →</a>
       </p>
     </div>
 
@@ -58,11 +63,19 @@ export default {
 
   components: { QrcodeVue },
 
+  props: {
+    instanceSlug: {
+      type: String,
+      required: true,
+    },
+  },
+
   data() {
     return {
       status: null,
       qrCode: null,
       lastEventAt: null,
+      projectName: null,
       loading: false,
       resetting: false,
       pollHandle: null,
@@ -73,6 +86,12 @@ export default {
   computed: {
     hasQr() {
       return Boolean(this.qrCode) && this.status !== 'CONNECTED';
+    },
+    statusEndpoint() {
+      return `/api/whatsapp/instances/${this.instanceSlug}/status`;
+    },
+    resetEndpoint() {
+      return `/api/whatsapp/instances/${this.instanceSlug}/reset`;
     },
   },
 
@@ -106,10 +125,11 @@ export default {
     async fetchStatus() {
       this.loading = true;
       try {
-        const { data } = await axios.get('/api/whatsapp/status');
+        const { data } = await axios.get(this.statusEndpoint);
         this.status = data.status;
         this.qrCode = data.qr_code || null;
         this.lastEventAt = data.last_event_at || null;
+        this.projectName = data.name || null;
 
         if (this.status === 'CONNECTED') {
           this.stopPolling();
@@ -125,7 +145,7 @@ export default {
       if (!confirm('Isto vai apagar a sessão atual e gerar um novo QR Code. Continuar?')) return;
       this.resetting = true;
       try {
-        await axios.post('/api/whatsapp/reset');
+        await axios.post(this.resetEndpoint);
         this.status = 'INITIALIZING';
         this.qrCode = null;
         this.startPolling();
@@ -159,6 +179,25 @@ export default {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
   font-family: system-ui, sans-serif;
   text-align: center;
+}
+
+.wa-connect__header {
+  text-align: left;
+  margin-bottom: 1rem;
+}
+.wa-connect__title {
+  margin: .35rem 0 0;
+  font-size: 1.15rem;
+}
+.wa-back {
+  display: inline-block;
+  font-size: .8rem;
+  color: #64748b;
+  text-decoration: none;
+}
+.wa-back:hover {
+  color: #1e293b;
+  text-decoration: underline;
 }
 
 .wa-state {

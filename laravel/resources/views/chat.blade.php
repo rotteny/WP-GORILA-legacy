@@ -8,6 +8,6 @@
     <style>html, body { margin: 0; height: 100%; }</style>
 </head>
 <body>
-    <div id="wa-chat-app"></div>
+    <div id="wa-chat-app" data-instance-slug="{{ $slug }}"></div>
 </body>
 </html>

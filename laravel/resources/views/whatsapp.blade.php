@@ -7,6 +7,6 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body style="background:#f8fafc; min-height:100vh; margin:0;">
-    <div id="wa-app"></div>
+    <div id="wa-app" data-instance-slug="{{ $slug }}"></div>
 </body>
 </html>
