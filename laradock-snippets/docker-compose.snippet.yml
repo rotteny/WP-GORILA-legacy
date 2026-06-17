@@ -18,8 +18,6 @@
       volumes:
         # Multi-sessão: cada projeto vira uma subpasta em auth_info/{slug}/
         - ../whatsapp-service/auth_info:/usr/src/app/auth_info
-        # Pasta legacy mantida pra migração soft (será removida no M5)
-        - ../whatsapp-service/auth_info_baileys:/usr/src/app/auth_info_baileys
       ports:
         # Exposto só em localhost pra debug. Laravel acessa via rede docker.
         - "127.0.0.1:3020:3000"

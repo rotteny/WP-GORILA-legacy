@@ -7,21 +7,33 @@ open-source **Baileys**. Projeto interno, baixa escala, foco em
 ## Arquitetura
 
 ```
-┌──────────────┐  long poll 3s   ┌─────────────────────┐   webhook   ┌─────────────────────┐
+┌──────────────┐  long poll 3-5s ┌─────────────────────┐   webhook   ┌─────────────────────┐
 │   Vue SPA    │ ──────────────▶ │  Laravel (Nginx)    │ ◀────────── │  whatsapp-service   │
-│  (qrcode.vue)│ ◀── JSON ────── │  http://:8088       │             │  Node + Baileys     │
+│  (multi-tela)│ ◀── JSON ────── │  http://:8088       │             │  Node + Baileys     │
 └──────────────┘                 │  Postgres :5433     │             │  http://:3020       │
                                  └─────────────────────┘             └─────────────────────┘
+                                          │                                    │
+                                          ▼                                    ▼
+                                  Tabela `instances`              Map<slug, InstanceState>
+                                  (uma linha por projeto)        auth_info/{slug}/ no disco
 ```
 
-- **whatsapp-service** (Node + Express + Baileys) — micro-serviço isolado que
-  fala com o WhatsApp via WebSocket. Gera o QR, mantém a sessão e dispara
-  webhooks pro Laravel quando o estado muda.
-- **Laravel 13** — guarda o estado em Postgres na tabela `whatsapp_setups`,
-  expõe `GET /api/whatsapp/status` para o front e proxia
-  `POST /api/whatsapp/send-message` pro Node.
-- **Vue 3** — componente único `WhatsAppConnect.vue` faz long polling de 3s
-  no Laravel. Renderiza o QR via `qrcode.vue` ou mostra "Conectado".
+**Multi-sessão:** o sistema gerencia N sessões WhatsApp simultâneas (uma por
+projeto), cada uma identificada por um **slug** (`piloto`, `acca`, etc.). Cada
+projeto tem sua própria pasta de credenciais Baileys (`auth_info/{slug}/`) e
+seu próprio buffer de conversas.
+
+- **whatsapp-service** (Node + Express + Baileys) — micro-serviço que mantém
+  um `Map<slug, InstanceState>` em memória; no startup, varre `auth_info/*/`
+  e reativa todas as sessões automaticamente. Dispara webhook pro Laravel
+  em cada evento com `instance_id` no payload.
+- **Laravel 13** — guarda o estado das instâncias em Postgres (`instances`),
+  expõe API REST com prefixo `/api/whatsapp/instances/{slug}/...` e proxia
+  cada chamada pro Node.
+- **Vue 3** — três telas:
+  - `/` → `InstancesScreen.vue` (lista de projetos com cards)
+  - `/p/{slug}/qr` → `WhatsAppConnect.vue` (escanear QR)
+  - `/p/{slug}/chat` → `ChatScreen.vue` (chat estilo WhatsApp Web)
 
 ## Stack
 
@@ -49,7 +61,6 @@ open-source **Baileys**. Projeto interno, baixa escala, foco em
 ```bash
 git clone git@github.com:Mystic0112/WP-GORILA.git
 cd WP-GORILA
-git checkout helio   # ou a branch que você quer usar
 ```
 
 ### Passo 2 — Provisionar o Laradock
@@ -105,8 +116,11 @@ composer install
 cp .env.example .env
 php artisan key:generate
 
-# Cria a tabela whatsapp_setups
+# Cria as tabelas (instances + outras default do Laravel)
 php artisan migrate --force
+
+# Cria a instância "piloto" (primeira sessão WhatsApp)
+php artisan db:seed --class=PilotoInstanceSeeder --force
 
 # Instala deps do front e builda
 npm install
@@ -119,36 +133,58 @@ exit
 
 Abre no navegador: **http://localhost:8088**
 
-Você verá o componente Vue carregando. Em ~3 segundos o long polling pega o
-QR Code do Baileys e renderiza na tela.
+Você verá a tela de **listagem de projetos**. Já vai aparecer o projeto
+"Piloto Inicial" criado pelo seeder. Clica nele:
 
-Escaneia com o WhatsApp do celular em:
-**Configurações → Aparelhos conectados → Conectar aparelho**
+- Se for a primeira vez (status `PENDING_QR`), abre a tela de QR. Escaneie em
+  **Configurações → Aparelhos conectados → Conectar aparelho** no WhatsApp.
+- Se já estiver conectado, abre direto o chat.
 
-Quando parear, a tela muda automaticamente para "WhatsApp conectado".
+Pra criar novos projetos (novos números WhatsApp): botão **"+ Novo projeto"** no
+canto superior direito.
 
 ---
 
 ## 🧪 Como testar manualmente
 
-### Status do Baileys (raw)
+A API toda é prefixada por `/api/whatsapp/instances/{slug}/`. Use o slug
+do projeto (`piloto`, `acca`, etc.) nos exemplos abaixo.
+
+### Listar projetos
 
 ```bash
-curl http://localhost:3020/status | jq .
+curl http://localhost:8088/api/whatsapp/instances | jq .
 ```
 
-### Status persistido no Laravel
+### Criar projeto novo
 
 ```bash
-curl http://localhost:8088/api/whatsapp/status | jq .
+curl -X POST http://localhost:8088/api/whatsapp/instances \
+  -H "Content-Type: application/json" \
+  -d '{"slug":"acca","name":"Atendimento ACCA"}'
+```
+
+### Status de uma instância
+
+```bash
+curl http://localhost:8088/api/whatsapp/instances/piloto/status | jq .
 ```
 
 ### Enviar mensagem (com WhatsApp já conectado)
 
 ```bash
-curl -X POST http://localhost:8088/api/whatsapp/send-message \
+curl -X POST http://localhost:8088/api/whatsapp/instances/piloto/send-message \
   -H "Content-Type: application/json" \
   -d '{"number":"5511999999999","message":"Olá da Gorila!"}'
+```
+
+### Enviar arquivo (imagem, áudio, PDF, etc.)
+
+```bash
+curl -X POST http://localhost:8088/api/whatsapp/instances/piloto/send-media \
+  -F "number=5511999999999" \
+  -F "caption=Olha esta foto" \
+  -F "file=@/caminho/pra/arquivo.jpg"
 ```
 
 ### Resetar a sessão (gerar novo QR sem mexer no shell)
@@ -156,7 +192,13 @@ curl -X POST http://localhost:8088/api/whatsapp/send-message \
 Use o botão **"Gerar novo QR"** na interface, ou via API:
 
 ```bash
-curl -X POST http://localhost:8088/api/whatsapp/reset
+curl -X POST http://localhost:8088/api/whatsapp/instances/piloto/reset
+```
+
+### Deletar uma instância
+
+```bash
+curl -X DELETE http://localhost:8088/api/whatsapp/instances/acca
 ```
 
 ---
@@ -168,22 +210,27 @@ WP-GORILA/
 ├── setup.sh                       # Provisionamento automatizado do Laradock
 ├── README.md                      # Este arquivo
 │
-├── whatsapp-service/              # Micro-serviço Baileys
+├── whatsapp-service/              # Micro-serviço Baileys (multi-sessão)
 │   ├── Dockerfile                 # node:20-alpine
-│   ├── index.js                   # Endpoints: /status, /send-message, /reset, /health
-│   └── package.json               # Baileys + Express + axios + qrcode + pino
+│   ├── index.js                   # Map<slug, InstanceState> + endpoints /instances/:id/...
+│   ├── package.json               # Baileys + Express + multer + axios + qrcode + pino
+│   └── auth_info/                 # bind-mount, uma subpasta por projeto
+│       ├── piloto/                # auth do projeto "piloto"
+│       └── acca/                  # (exemplo) auth do projeto "acca"
 │
 ├── laravel/                       # App Laravel 13
 │   ├── app/Http/Controllers/WhatsAppController.php
-│   ├── app/Models/WhatsappSetup.php
+│   ├── app/Http/Controllers/InstanceController.php
+│   ├── app/Models/Instance.php
 │   ├── bootstrap/app.php          # registra routes/api.php
 │   ├── config/services.php        # bloco 'whatsapp' aqui
-│   ├── database/migrations/2026_06_16_000000_create_whatsapp_setups_table.php
-│   ├── resources/js/app.js        # monta WhatsAppConnect.vue
-│   ├── resources/js/components/WhatsAppConnect.vue
-│   ├── resources/views/whatsapp.blade.php
-│   ├── routes/api.php             # /webhook, /status, /send-message, /reset
-│   └── routes/web.php             # GET / → view whatsapp
+│   ├── database/migrations/      # create_instances_table + default Laravel
+│   ├── database/seeders/PilotoInstanceSeeder.php
+│   ├── resources/js/app.js        # 3 mount points
+│   ├── resources/js/components/   # InstancesScreen + WhatsAppConnect + ChatScreen
+│   ├── resources/views/           # instances.blade, whatsapp.blade, chat.blade
+│   ├── routes/api.php             # tudo prefixado por /instances/{instance}/
+│   └── routes/web.php             # /, /p/{slug}/qr, /p/{slug}/chat
 │
 ├── laradock-snippets/             # Patches que o setup.sh aplica
 │   ├── env.changes.md
@@ -216,16 +263,18 @@ INITIALIZING ──► PENDING_QR ──► CONNECTED ──► (rede cai) ─�
                      ▼              ▼                            │
                  LOGGED_OUT ◀───────┴────────────────────────────┘
                      │
-                     │ apagar auth_info_baileys + restart
+                     │ apagar auth_info/{slug}/ + restart
                      ▼
                  INITIALIZING (novo QR)
 ```
 
-A pasta `whatsapp-service/auth_info_baileys/` é **bind-mount**, então a sessão
-sobrevive a `docker compose down`. Apagar o conteúdo dela = forçar novo QR.
+A pasta `whatsapp-service/auth_info/{slug}/` é **bind-mount**, então a sessão
+sobrevive a `docker compose down`. Apagar o conteúdo dela = forçar novo QR
+**daquele projeto** (não afeta os outros).
 
-O Node dispara webhook para `http://nginx/api/whatsapp/webhook` (Laravel)
-sempre que o estado muda — não há polling Laravel↔Node.
+O Node dispara webhook para `http://nginx/api/whatsapp/webhook` (Laravel) com
+`instance_id` no payload sempre que o estado de qualquer instância muda — não
+há polling Laravel↔Node.
 
 ---
 
@@ -240,11 +289,17 @@ Entra no workspace e roda `npm run build`. Verifique também que
 `bootstrap/app.php` tem `api: __DIR__.'/../routes/api.php'` no `withRouting()`.
 
 **`whatsapp-service` em loop de "Conexão fechada"** — sessão pode estar
-inválida. Botão "Gerar novo QR" na UI ou:
+inválida. Botão "Gerar novo QR" na UI **da instância em questão**, ou via API:
+
+```bash
+curl -X POST http://localhost:8088/api/whatsapp/instances/piloto/reset
+```
+
+Pra resetar manualmente (último caso):
 
 ```bash
 docker stop whatsapp-service
-rm -rf whatsapp-service/auth_info_baileys/*
+rm -rf whatsapp-service/auth_info/piloto/*   # troque "piloto" pelo slug
 docker start whatsapp-service
 ```
 

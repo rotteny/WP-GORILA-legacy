@@ -9,7 +9,7 @@ RUN npm install --omit=dev
 
 COPY . .
 
-RUN mkdir -p /usr/src/app/auth_info /usr/src/app/auth_info_baileys
+RUN mkdir -p /usr/src/app/auth_info
 
 EXPOSE 3000
 

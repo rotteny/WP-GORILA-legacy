@@ -1,12 +1,8 @@
 # Laradock — clonado pelo setup.sh, não versionar
 /laradock/
 
-# Sessão e credenciais do Baileys — NUNCA comitar (legacy)
-/whatsapp-service/auth_info_baileys/*
-!/whatsapp-service/auth_info_baileys/.gitkeep
-/whatsapp-service/auth_info_baileys.bkp/
-
-# Multi-sessão (M1+): cada projeto tem sua subpasta
+# Sessões Baileys (multi-sessão): cada projeto = subpasta auth_info/{slug}/
+# NUNCA comitar — contém credenciais sensíveis
 /whatsapp-service/auth_info/*
 !/whatsapp-service/auth_info/.gitkeep
 

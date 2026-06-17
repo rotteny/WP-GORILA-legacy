@@ -33,7 +33,6 @@ const PORT = process.env.PORT || 3000;
 const WEBHOOK_URL =
   process.env.LARAVEL_WEBHOOK_URL || 'http://nginx/api/whatsapp/webhook';
 const AUTH_DIR = process.env.AUTH_DIR || '/usr/src/app/auth_info';
-const LEGACY_AUTH_DIR = '/usr/src/app/auth_info_baileys'; // M5 vai remover
 
 const INBOX_SIZE = 500;
 
@@ -304,57 +303,8 @@ async function startBaileys(slug) {
 // BOOTSTRAP
 // =============================================================================
 
-/**
- * Migracao soft: se AUTH_DIR esta vazio mas existe LEGACY_AUTH_DIR com
- * arquivos, copia o conteudo para AUTH_DIR/piloto/ pra preservar a sessao
- * existente. Sera removido no M5 quando a migracao for finalizada.
- */
-async function migrateLegacyAuthIfNeeded() {
-  await fs.mkdir(AUTH_DIR, { recursive: true });
-
-  // Conta só subdiretórios (instâncias), ignora .gitkeep / arquivos ocultos
-  try {
-    const entries = await fs.readdir(AUTH_DIR, { withFileTypes: true });
-    const hasInstances = entries.some(
-      (e) => e.isDirectory() && !e.name.startsWith('.'),
-    );
-    if (hasInstances) return;
-  } catch (_) {}
-
-  let legacyFiles;
-  try {
-    legacyFiles = await fs.readdir(LEGACY_AUTH_DIR);
-  } catch {
-    return; // sem pasta legacy
-  }
-  legacyFiles = legacyFiles.filter((f) => !f.startsWith('.'));
-  if (legacyFiles.length === 0) return;
-
-  const targetDir = path.join(AUTH_DIR, 'piloto');
-  await fs.mkdir(targetDir, { recursive: true });
-
-  let copied = 0;
-  for (const f of legacyFiles) {
-    const src = path.join(LEGACY_AUTH_DIR, f);
-    const dst = path.join(targetDir, f);
-    try {
-      const stat = await fs.stat(src);
-      if (stat.isDirectory()) continue;
-      await fs.copyFile(src, dst);
-      copied++;
-    } catch (e) {
-      logger.warn({ err: e.message, file: f }, 'falha ao copiar arquivo legacy');
-    }
-  }
-  logger.info(
-    { slug: 'piloto', files: copied },
-    'auth legacy migrado para auth_info/piloto',
-  );
-}
-
 async function bootstrap() {
   await fs.mkdir(AUTH_DIR, { recursive: true });
-  await migrateLegacyAuthIfNeeded();
 
   const entries = await fs.readdir(AUTH_DIR, { withFileTypes: true });
   const slugs = entries
