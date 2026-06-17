@@ -14,9 +14,11 @@
       environment:
         - PORT=3000
         - LARAVEL_WEBHOOK_URL=http://nginx/api/whatsapp/webhook
-        - AUTH_DIR=/usr/src/app/auth_info_baileys
+        - AUTH_DIR=/usr/src/app/auth_info
       volumes:
-        # Sessão Baileys persistida no host — sobrevive a `compose down`.
+        # Multi-sessão: cada projeto vira uma subpasta em auth_info/{slug}/
+        - ../whatsapp-service/auth_info:/usr/src/app/auth_info
+        # Pasta legacy mantida pra migração soft (será removida no M5)
         - ../whatsapp-service/auth_info_baileys:/usr/src/app/auth_info_baileys
       ports:
         # Exposto só em localhost pra debug. Laravel acessa via rede docker.

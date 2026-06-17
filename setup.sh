@@ -101,10 +101,10 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Garantir pasta de sessão do Baileys
+# 4. Garantir pastas de sessão do Baileys
 # -----------------------------------------------------------------------------
-mkdir -p "$ROOT/whatsapp-service/auth_info_baileys"
-cyan "[4/4] Pasta auth_info_baileys garantida."
+mkdir -p "$ROOT/whatsapp-service/auth_info" "$ROOT/whatsapp-service/auth_info_baileys"
+cyan "[4/4] Pastas auth_info (multi-sessão) e auth_info_baileys (legacy) garantidas."
 
 echo
 green "Setup concluído!"
