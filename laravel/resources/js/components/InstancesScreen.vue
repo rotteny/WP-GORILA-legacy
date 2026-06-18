@@ -1,157 +1,147 @@
 <template>
-  <div class="ip-wrap">
-    <div class="ip-container">
-      <!-- HEADER -->
-      <header class="ip-header">
-        <div class="ip-header__text">
-          <h1 class="ip-title">Projetos</h1>
-          <p class="ip-subtitle">Cada projeto representa um número WhatsApp conectado.</p>
+  <div class="screen">
+    <Topbar />
+
+    <div class="scroll">
+      <div class="wrap">
+        <div class="page-head">
+          <div>
+            <h1>Projetos</h1>
+            <p>Cada projeto representa um número WhatsApp conectado.</p>
+          </div>
         </div>
-        <button
-          v-if="instances.length > 0"
-          class="ip-btn ip-btn--primary"
-          type="button"
-          @click="openModal"
-        >
-          + Novo projeto
-        </button>
-      </header>
 
-      <!-- LOADING (1ª carga) -->
-      <div v-if="loading && instances.length === 0" class="ip-empty">
-        <p>Carregando projetos...</p>
-      </div>
-
-      <!-- ESTADO VAZIO -->
-      <div v-else-if="instances.length === 0" class="ip-empty">
-        <div class="ip-empty__illustration" aria-hidden="true">
-          <svg width="96" height="96" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.38 5.07L2 22l5.07-1.38A9.93 9.93 0 0012 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm0 18a7.95 7.95 0 01-4.07-1.11l-.29-.17-3 .82.82-3-.17-.29A7.95 7.95 0 014 12c0-4.41 3.59-8 8-8s8 3.59 8 8-3.59 8-8 8z"
-              fill="#008069"
-            />
-            <path
-              d="M16.5 14.36c-.25-.13-1.48-.73-1.71-.81-.23-.08-.4-.13-.56.13-.17.25-.65.81-.79.97-.15.17-.29.18-.54.06-.25-.13-1.05-.39-2-1.24-.74-.66-1.24-1.47-1.38-1.72-.15-.25-.02-.39.11-.51.11-.11.25-.29.38-.43.13-.15.17-.25.25-.42.08-.17.04-.31-.02-.43-.06-.13-.56-1.35-.77-1.85-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.23.25-.87.85-.87 2.07 0 1.22.89 2.4 1.02 2.57.13.17 1.76 2.69 4.27 3.77.6.26 1.06.41 1.42.53.6.19 1.14.16 1.57.1.48-.07 1.48-.6 1.69-1.18.21-.59.21-1.09.15-1.18-.06-.1-.23-.16-.48-.29z"
-              fill="#008069"
-            />
-          </svg>
+        <!-- LOADING (1ª carga) -->
+        <div v-if="loading && instances.length === 0" class="state-empty">
+          <p>Carregando projetos...</p>
         </div>
-        <h2 class="ip-empty__title">Nenhum projeto ainda</h2>
-        <p class="ip-empty__hint">Crie seu primeiro projeto para conectar um número WhatsApp.</p>
-        <button class="ip-btn ip-btn--primary" type="button" @click="openModal">
-          Criar primeiro projeto
-        </button>
-      </div>
 
-      <!-- GRID DE CARDS -->
-      <div v-else class="ip-grid">
-        <article
-          v-for="inst in instances"
-          :key="inst.id"
-          class="ip-card"
-          @click="openInstance(inst)"
-          tabindex="0"
-          @keydown.enter="openInstance(inst)"
-        >
-          <!-- Menu ⋮ -->
-          <div class="ip-card__menu" @click.stop>
-            <button
-              class="ip-card__menu-btn"
-              type="button"
-              :aria-label="`Ações do projeto ${inst.name}`"
-              @click="toggleMenu(inst.id)"
-            >⋮</button>
-            <div v-if="openMenuId === inst.id" class="ip-card__menu-popover">
-              <button
-                type="button"
-                class="ip-card__menu-item ip-card__menu-item--danger"
-                @click="deleteInstance(inst)"
-              >Excluir</button>
+        <!-- ESTADO VAZIO -->
+        <div v-else-if="instances.length === 0" class="state-empty">
+          <div class="state-empty__ill" aria-hidden="true">
+            <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+            </svg>
+          </div>
+          <h2>Nenhum projeto ainda</h2>
+          <p>Crie seu primeiro projeto para conectar um número WhatsApp.</p>
+          <button class="btn-primary" type="button" @click="openModal">Criar primeiro projeto</button>
+        </div>
+
+        <!-- GRID DE CARDS -->
+        <div v-else class="grid">
+          <article
+            v-for="inst in instances"
+            :key="inst.id"
+            class="pcard"
+            tabindex="0"
+            @click="openInstance(inst)"
+            @keydown.enter="openInstance(inst)"
+          >
+            <div class="pcard-top">
+              <div class="av-lg" :style="avatarStyle(inst.slug)">{{ initials(inst.name) }}</div>
+              <div class="kebab-wrap" @click.stop>
+                <button
+                  class="kebab"
+                  type="button"
+                  :aria-label="`Ações do projeto ${inst.name}`"
+                  @click="toggleMenu(inst.id)"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="12" cy="19" r="2" />
+                  </svg>
+                </button>
+                <div v-if="openMenuId === inst.id" class="kebab-popover">
+                  <button type="button" class="kebab-item" @click="openWebhooks(inst)">
+                    Webhooks
+                  </button>
+                  <button type="button" class="kebab-item kebab-item--danger" @click="deleteInstance(inst)">
+                    Excluir
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
 
-          <div class="ip-card__avatar" :style="avatarStyle(inst.slug)">
-            {{ initials(inst.name) }}
-          </div>
+            <h3>{{ inst.name }}</h3>
+            <p class="mail">{{ inst.slug }}@wp-gorila</p>
 
-          <div class="ip-card__body">
-            <div class="ip-card__name">{{ inst.name }}</div>
-            <div class="ip-card__slug">{{ inst.slug }}@wp-gorila</div>
-          </div>
+            <!-- TODO: Chunk 2 já persiste mensagens — pegar contagem via API v1 num próximo trabalho -->
+            <div class="stat-row">
+              <div class="stat"><b>—</b> conversas</div>
+              <div class="stat"><b>—</b> não lidas</div>
+            </div>
 
-          <div class="ip-card__footer">
-            <span class="ip-badge" :class="badgeClass(inst.status)">
-              {{ badgeLabel(inst.status) }}
-            </span>
-            <span class="ip-card__updated">
-              {{ formatRelative(inst.updated_at || inst.last_event_at || inst.created_at) }}
-            </span>
-          </div>
-        </article>
+            <div class="pcard-foot">
+              <span class="pill" :class="inst.status === 'CONNECTED' ? 'on' : 'off'">
+                <span class="dot"></span>
+                {{ inst.status === 'CONNECTED' ? 'Conectado' : 'Offline' }}
+              </span>
+              <span class="meta">{{ formatRelative(inst.updated_at || inst.last_event_at || inst.created_at) }}</span>
+            </div>
+          </article>
+
+          <button class="add-card" type="button" @click="openModal">
+            <span class="plus">+</span>
+            Adicionar projeto
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- MODAL DE CRIAÇÃO -->
-    <div v-if="showModal" class="ip-modal" @click.self="closeModal">
-      <div class="ip-modal__card" role="dialog" aria-modal="true" aria-labelledby="ip-modal-title">
-        <h2 id="ip-modal-title" class="ip-modal__title">Novo projeto</h2>
+    <Transition name="pop">
+      <div v-if="showModal" class="overlay" @click.self="closeModal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+          <h2 id="modal-title">Novo projeto</h2>
 
-        <div v-if="formError" class="ip-modal__error">{{ formError }}</div>
+          <div v-if="formError" class="modal-error">{{ formError }}</div>
 
-        <form @submit.prevent="createInstance">
-          <label class="ip-field">
-            <span class="ip-field__label">Nome</span>
-            <input
-              v-model="form.name"
-              class="ip-field__input"
-              type="text"
-              placeholder="Atendimento ACCA"
-              :disabled="creating"
-              @input="onNameInput"
-              autofocus
-            />
-          </label>
+          <form @submit.prevent="createInstance">
+            <div class="fgroup">
+              <label for="inst-name">Nome</label>
+              <input
+                id="inst-name"
+                v-model="form.name"
+                type="text"
+                placeholder="Atendimento ACCA"
+                :disabled="creating"
+                autofocus
+                @input="onNameInput"
+              />
+            </div>
 
-          <label class="ip-field">
-            <span class="ip-field__label">Slug</span>
-            <input
-              v-model="form.slug"
-              class="ip-field__input"
-              type="text"
-              placeholder="acca"
-              :disabled="creating"
-              @input="onSlugInput"
-            />
-            <span class="ip-field__hint">
-              Use letras minúsculas, números, hífen ou underscore. 1 a 31 caracteres.
-            </span>
-          </label>
+            <div class="fgroup">
+              <label for="inst-slug">Slug</label>
+              <input
+                id="inst-slug"
+                v-model="form.slug"
+                class="mono"
+                type="text"
+                placeholder="acca"
+                maxlength="31"
+                :disabled="creating"
+                @input="onSlugInput"
+              />
+            </div>
+            <p class="help">Use letras minúsculas, números, hífen ou underscore. 1 a 31 caracteres.</p>
+            <!-- TODO: telefone vem em chunk futuro -->
 
-          <div class="ip-modal__actions">
-            <button
-              type="button"
-              class="ip-btn ip-btn--ghost"
-              :disabled="creating"
-              @click="closeModal"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              class="ip-btn ip-btn--primary"
-              :disabled="creating"
-            >
-              {{ creating ? 'Criando...' : 'Criar' }}
-            </button>
-          </div>
-        </form>
+            <div class="modal-actions">
+              <button type="button" class="btn-ghost" :disabled="creating" @click="closeModal">Cancelar</button>
+              <button type="submit" class="btn-primary" :disabled="creating">
+                {{ creating ? 'Criando...' : 'Criar' }}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
 <script>
 import axios from 'axios';
+import Topbar from './Topbar.vue';
 
 const POLL_MS = 5000;
 const SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,30}$/;
@@ -159,21 +149,19 @@ const SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,30}$/;
 export default {
   name: 'InstancesScreen',
 
+  components: { Topbar },
+
   data() {
     return {
       instances: [],
       loading: false,
       pollHandle: null,
       openMenuId: null,
-
       showModal: false,
       creating: false,
       formError: '',
       slugEdited: false,
-      form: {
-        name: '',
-        slug: '',
-      },
+      form: { name: '', slug: '' },
     };
   },
 
@@ -187,7 +175,7 @@ export default {
     this.stopPolling();
     document.removeEventListener('click', this.handleDocumentClick);
   },
-  // Compat Vue 2
+
   beforeDestroy() {
     this.stopPolling();
     document.removeEventListener('click', this.handleDocumentClick);
@@ -202,7 +190,6 @@ export default {
     },
 
     handleDocumentClick() {
-      // Fecha o menu ⋮ se clicou fora de qualquer card
       this.openMenuId = null;
     },
 
@@ -210,10 +197,8 @@ export default {
       this.loading = true;
       try {
         const { data } = await axios.get('/api/whatsapp/instances');
-        // Aceita tanto array direto quanto { instances: [...] }
         this.instances = Array.isArray(data) ? data : (data.instances || []);
       } catch (e) {
-        // Silencioso: poll segue tentando.
         console.error('Erro ao carregar projetos:', e);
       } finally {
         this.loading = false;
@@ -235,32 +220,24 @@ export default {
     },
 
     onNameInput() {
-      // Auto-gera slug enquanto o usuário não tocou no campo slug
       if (!this.slugEdited) {
         this.form.slug = this.slugFromName(this.form.name);
       }
     },
 
     onSlugInput() {
-      // Marca como editado manualmente quando o usuário interagir
       this.slugEdited = true;
     },
 
     slugFromName(name) {
       if (!name) return '';
-      // Remove acentos (combining marks U+0300 a U+036F)
-      const noAccents = name
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '');
-      // Lowercase + substitui não alfanum por hífen + colapsa hífens + trim
+      const noAccents = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       let slug = noAccents
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/-+/g, '-')
         .replace(/^-+|-+$/g, '');
-      // Garante que comece com alfanum (regex exige isso)
       slug = slug.replace(/^[^a-z0-9]+/, '');
-      // Limita a 31 chars
       return slug.slice(0, 31);
     },
 
@@ -311,7 +288,7 @@ export default {
     async deleteInstance(instance) {
       this.openMenuId = null;
       const ok = window.confirm(
-        `Excluir o projeto '${instance.name}'? Esta ação não pode ser desfeita.`
+        `Excluir o projeto '${instance.name}'? Esta ação não pode ser desfeita.`,
       );
       if (!ok) return;
 
@@ -332,7 +309,11 @@ export default {
       }
     },
 
-    // ---------- helpers visuais ----------
+    openWebhooks(instance) {
+      this.openMenuId = null;
+      window.location.href = `/p/${encodeURIComponent(instance.slug)}/webhooks`;
+    },
+
     initials(name) {
       if (!name) return '?';
       const parts = name.trim().split(/\s+/);
@@ -345,27 +326,7 @@ export default {
       const s = slug || '';
       for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
       const hue = h % 360;
-      return { background: `hsl(${hue}, 55%, 50%)` };
-    },
-
-    badgeLabel(status) {
-      return ({
-        CONNECTED: '✓ Conectado',
-        PENDING_QR: '⏳ Aguardando QR',
-        INITIALIZING: 'Iniciando...',
-        RECONNECTING: '↻ Reconectando',
-        LOGGED_OUT: '✕ Desconectado',
-      })[status] || status || '—';
-    },
-
-    badgeClass(status) {
-      return {
-        'ip-badge--ok': status === 'CONNECTED',
-        'ip-badge--warn': status === 'PENDING_QR',
-        'ip-badge--neutral': status === 'INITIALIZING',
-        'ip-badge--orange': status === 'RECONNECTING',
-        'ip-badge--err': status === 'LOGGED_OUT',
-      };
+      return { background: `linear-gradient(150deg, hsl(${hue}, 55%, 50%), hsl(${hue}, 55%, 38%))` };
     },
 
     formatRelative(iso) {
@@ -398,334 +359,456 @@ export default {
 </script>
 
 <style scoped>
-.ip-wrap {
+.screen {
   min-height: 100vh;
-  background: #f0f2f5;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #1f2937;
+  display: flex;
+  flex-direction: column;
 }
 
-.ip-container {
-  max-width: 1120px;
+.scroll {
+  height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+
+.wrap {
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 32px 24px 64px;
+  padding: 48px 36px 80px;
 }
 
-/* ---------- HEADER ---------- */
-.ip-header {
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 34px;
+}
+
+.page-head h1 {
+  font-size: 34px;
+  font-weight: 800;
+  margin: 0 0 6px;
+  letter-spacing: -0.03em;
+}
+
+.page-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 20px;
+}
+
+.pcard {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: var(--shadow);
+  transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s;
+  cursor: pointer;
+  position: relative;
+  outline: none;
+}
+
+.pcard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: #4a4a4a;
+}
+
+.pcard:focus-visible {
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.pcard-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 32px;
-  flex-wrap: wrap;
-}
-.ip-header__text { min-width: 0; }
-.ip-title {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  color: #111827;
-}
-.ip-subtitle {
-  margin: 4px 0 0;
-  font-size: 14px;
-  color: #6b7280;
+  margin-bottom: 16px;
 }
 
-/* ---------- BOTÕES ---------- */
-.ip-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 18px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease;
-  font-family: inherit;
-}
-.ip-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.ip-btn--primary {
-  background: #008069;
-  color: #fff;
-}
-.ip-btn--primary:hover:not(:disabled) {
-  background: #006e57;
-}
-.ip-btn--primary:active:not(:disabled) {
-  transform: translateY(1px);
-}
-.ip-btn--ghost {
-  background: #fff;
-  color: #374151;
-  border: 1px solid #d1d5db;
-}
-.ip-btn--ghost:hover:not(:disabled) {
-  background: #f9fafb;
-}
-
-/* ---------- GRID ---------- */
-.ip-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-}
-@media (min-width: 640px) {
-  .ip-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (min-width: 960px) {
-  .ip-grid { grid-template-columns: repeat(3, 1fr); }
-}
-
-/* ---------- CARD ---------- */
-.ip-card {
-  position: relative;
-  background: #fff;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  cursor: pointer;
-  transition: box-shadow 0.15s ease, transform 0.1s ease;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  outline: none;
-}
-.ip-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
-}
-.ip-card:focus-visible {
-  box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.35);
-}
-
-.ip-card__avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  color: #fff;
+.av-lg {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
   display: grid;
   place-items: center;
-  font-weight: 700;
-  font-size: 20px;
-  flex-shrink: 0;
+  color: #fff;
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: -0.02em;
+  box-shadow: 0 6px 16px rgba(16, 40, 32, 0.18);
 }
 
-.ip-card__body {
+.kebab-wrap {
+  position: relative;
+}
+
+.kebab {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s;
+}
+
+.kebab:hover {
+  background: var(--hover);
+  color: var(--ink-2);
+}
+
+.kebab-popover {
+  position: absolute;
+  top: 36px;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  min-width: 140px;
+  z-index: 10;
+  overflow: hidden;
+}
+
+.kebab-item {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--ink);
+  transition: background 0.12s;
+}
+
+.kebab-item:hover {
+  background: var(--hover);
+}
+
+.kebab-item--danger {
+  color: #f08a7e;
+}
+
+.pcard h3 {
+  margin: 0 0 3px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.mail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.stat-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.ip-card__name {
-  font-weight: 700;
-  font-size: 16px;
-  color: #111827;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ip-card__slug {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  color: #6b7280;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 18px;
+  margin-top: 14px;
 }
 
-.ip-card__footer {
+.stat {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.stat b {
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 15px;
+  display: block;
+  letter-spacing: -0.01em;
+}
+
+.pcard-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.ip-card__updated {
-  font-size: 11px;
-  color: #6b7280;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 
-/* ---------- MENU ⋮ ---------- */
-.ip-card__menu {
-  position: absolute;
-  top: 12px;
-  right: 12px;
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: 999px;
 }
-.ip-card__menu-btn {
+
+.pill.on {
+  background: var(--brand-soft);
+  color: #b794f6;
+}
+
+.pill.off {
+  background: rgba(240, 90, 75, 0.16);
+  color: #f08a7e;
+}
+
+.pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.add-card {
+  border: 1.5px dashed #444;
   background: transparent;
-  border: none;
-  font-size: 20px;
-  color: #6b7280;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  line-height: 1;
-}
-.ip-card__menu-btn:hover {
-  background: #f3f4f6;
-  color: #111827;
-}
-.ip-card__menu-popover {
-  position: absolute;
-  top: 32px;
-  right: 0;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  min-width: 140px;
-  z-index: 5;
-  overflow: hidden;
-}
-.ip-card__menu-item {
-  display: block;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 10px 14px;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  color: #1f2937;
-  font-family: inherit;
-}
-.ip-card__menu-item:hover {
-  background: #f9fafb;
-}
-.ip-card__menu-item--danger {
-  color: #dc2626;
-}
-.ip-card__menu-item--danger:hover {
-  background: #fef2f2;
-}
-
-/* ---------- BADGE ---------- */
-.ip-badge {
-  font-size: 11px;
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
   font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: #e5e7eb;
-  color: #374151;
-  white-space: nowrap;
+  min-height: 200px;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
+  font-family: inherit;
+  font-size: 14px;
 }
-.ip-badge--ok      { background: #d1fae5; color: #065f46; }
-.ip-badge--warn    { background: #fef3c7; color: #92400e; }
-.ip-badge--neutral { background: #e5e7eb; color: #374151; }
-.ip-badge--orange  { background: #ffedd5; color: #9a3412; }
-.ip-badge--err     { background: #fee2e2; color: #991b1b; }
 
-/* ---------- ESTADO VAZIO ---------- */
-.ip-empty {
+.add-card:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.add-card .plus {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--brand-soft);
+  color: #b794f6;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.state-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 64px 24px;
   text-align: center;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
-.ip-empty__illustration {
-  margin-bottom: 16px;
-  opacity: 0.85;
+
+.state-empty__ill {
+  width: 96px;
+  height: 96px;
+  border-radius: 30px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  color: var(--brand);
 }
-.ip-empty__title {
+
+.state-empty h2 {
   margin: 0 0 8px;
-  font-size: 20px;
-  color: #111827;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink-2);
 }
-.ip-empty__hint {
+
+.state-empty p {
   margin: 0 0 24px;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--muted);
   max-width: 360px;
 }
 
-/* ---------- MODAL ---------- */
-.ip-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
+.btn-primary {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 50;
-}
-.ip-modal__card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 28px;
-  width: 100%;
-  max-width: 440px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
-}
-.ip-modal__title {
-  margin: 0 0 16px;
-  font-size: 20px;
+  gap: 8px;
+  background: var(--brand);
+  color: #fff;
   font-weight: 700;
-  color: #111827;
-}
-.ip-modal__error {
-  background: #fef2f2;
-  color: #991b1b;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  margin-bottom: 16px;
-  border: 1px solid #fecaca;
-}
-
-.ip-field {
-  display: block;
-  margin-bottom: 16px;
-}
-.ip-field__label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 6px;
-}
-.ip-field__input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 14.5px;
+  padding: 12px 20px;
+  border-radius: 13px;
+  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.35);
+  transition: transform 0.12s, box-shadow 0.12s, background 0.12s;
+  border: none;
+  cursor: pointer;
   font-family: inherit;
 }
-.ip-field__input:focus {
-  border-color: #008069;
-  box-shadow: 0 0 0 3px rgba(0, 128, 105, 0.15);
-}
-.ip-field__input:disabled {
-  background: #f9fafb;
-  cursor: not-allowed;
-}
-.ip-field__hint {
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
-  color: #6b7280;
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--brand-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(139, 92, 246, 0.45);
 }
 
-.ip-modal__actions {
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-primary:disabled {
+  background: #3a3a3a;
+  color: var(--muted);
+  box-shadow: none;
+  cursor: default;
+}
+
+.btn-ghost {
+  font-weight: 700;
+  font-size: 14.5px;
+  padding: 12px 20px;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+  border-color: #4a4a4a;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 24px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 460px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow-lg);
+  padding: 28px;
+}
+
+.modal h2 {
+  margin: 0 0 22px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.modal-error {
+  background: rgba(240, 90, 75, 0.16);
+  color: #f08a7e;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(240, 90, 75, 0.3);
+}
+
+.fgroup {
+  margin-bottom: 18px;
+}
+
+.fgroup label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+
+.fgroup input {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #242424;
+  border-radius: 13px;
+  padding: 13px 15px;
+  font-size: 14.5px;
+  font-family: inherit;
+  color: var(--ink);
+  transition: border-color 0.12s, background 0.12s;
+  box-sizing: border-box;
+}
+
+.fgroup input.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fgroup input::placeholder {
+  color: var(--muted);
+}
+
+.fgroup input:focus {
+  outline: none;
+  border-color: var(--brand);
+  background: #2b2b2b;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14);
+}
+
+.fgroup input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.help {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: -6px 0 0;
+  line-height: 1.5;
+}
+
+.modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.pop-enter-active {
+  transition: opacity 0.18s, transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.pop-leave-active {
+  transition: opacity 0.14s, transform 0.14s;
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+}
+
+.pop-enter-from .modal,
+.pop-leave-to .modal {
+  transform: translateY(10px) scale(0.97);
 }
 </style>

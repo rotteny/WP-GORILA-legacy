@@ -2,10 +2,12 @@ import { createApp } from 'vue';
 import WhatsAppConnect from './components/WhatsAppConnect.vue';
 import ChatScreen from './components/ChatScreen.vue';
 import InstancesScreen from './components/InstancesScreen.vue';
+import WebhooksScreen from './components/WebhooksScreen.vue';
 
 // Roteamento mínimo: o ID do mount escolhe qual componente carregar.
 // #wa-app           → tela de conexão (QR code) de UMA instância
 // #wa-chat-app      → tela de chat de UMA instância
+// #wa-webhooks-app  → tela de gerenciamento de webhooks de UMA instância
 // #wa-instances-app → listagem de projetos (instâncias)
 //
 // Os mounts por-instância exigem `data-instance-slug` no elemento — o slug
@@ -24,6 +26,7 @@ function mountWithSlug(elId, Component) {
 
 mountWithSlug('wa-app', WhatsAppConnect);
 mountWithSlug('wa-chat-app', ChatScreen);
+mountWithSlug('wa-webhooks-app', WebhooksScreen);
 
 const instancesEl = document.getElementById('wa-instances-app');
 if (instancesEl) createApp(InstancesScreen).mount(instancesEl);

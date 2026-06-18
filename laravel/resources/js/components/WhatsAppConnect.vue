@@ -1,55 +1,82 @@
 <template>
-  <div class="wa-connect">
-    <header class="wa-connect__header">
-      <a href="/" class="wa-back">← Projetos</a>
-      <h2 class="wa-connect__title">
-        Conexão WhatsApp<span v-if="projectName"> — {{ projectName }}</span>
-      </h2>
-    </header>
+  <div class="screen">
+    <Topbar />
 
-    <div v-if="loading && !status" class="wa-state wa-state--loading">
-      Carregando status...
-    </div>
+    <div class="connect-body">
+      <div class="connect-card">
+        <a href="/" class="back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+          Projetos
+        </a>
 
-    <div v-else-if="status === 'CONNECTED'" class="wa-state wa-state--ok">
-      <span class="wa-dot wa-dot--ok"></span>
-      WhatsApp conectado com sucesso.
-      <p v-if="lastEventAt" class="wa-meta">
-        Última atualização: {{ formatDate(lastEventAt) }}
-      </p>
-      <p style="margin-top:1rem;">
-        <a :href="`/p/${instanceSlug}/chat`" class="wa-link">Abrir conversas →</a>
-      </p>
-    </div>
+        <h1 class="connect-title">
+          Conexão WhatsApp<span v-if="projectName"> — {{ projectName }}</span>
+        </h1>
 
-    <div v-else-if="hasQr" class="wa-state wa-state--pending">
-      <p>Escaneie o QR Code abaixo com o WhatsApp do celular:</p>
-      <qrcode-vue :value="qrCode" :size="260" level="M" />
-      <p class="wa-meta">Status atual: {{ status }}</p>
-    </div>
+        <div v-if="loading && !status" class="state state--loading">
+          <div class="spinner" aria-hidden="true"></div>
+          <p>Carregando status...</p>
+        </div>
 
-    <div v-else class="wa-state wa-state--waiting">
-      <span class="wa-dot wa-dot--warn"></span>
-      Aguardando o serviço gerar o QR Code... (status: {{ status || 'desconhecido' }})
-    </div>
+        <div v-else-if="status === 'CONNECTED'" class="state state--ok">
+          <span class="pill on"><span class="dot"></span>Conectado</span>
+          <p class="state-msg">WhatsApp conectado com sucesso.</p>
+          <p v-if="lastEventAt" class="state-meta">Última atualização: {{ formatDate(lastEventAt) }}</p>
+          <a :href="`/p/${instanceSlug}/chat`" class="btn-primary">Abrir conversas →</a>
+        </div>
 
-    <div class="wa-actions">
-      <button
-        class="wa-btn wa-btn--primary"
-        type="button"
-        @click="fetchStatus"
-        :disabled="loading || resetting"
-      >
-        Atualizar agora
-      </button>
-      <button
-        class="wa-btn wa-btn--danger"
-        type="button"
-        @click="resetConnection"
-        :disabled="resetting"
-      >
-        {{ resetting ? 'Resetando...' : 'Gerar novo QR' }}
-      </button>
+        <div v-else-if="hasQr" class="state state--qr">
+          <span class="pill warn"><span class="dot"></span>Aguardando QR</span>
+          <p class="state-msg">Escaneie o QR Code abaixo com o WhatsApp do celular:</p>
+          <div class="qr-wrap">
+            <qrcode-vue
+              :value="qrCode"
+              :size="260"
+              level="M"
+              background="#ffffff"
+              foreground="#212121"
+            />
+          </div>
+          <p class="state-meta">Status atual: {{ status }}</p>
+        </div>
+
+        <div v-else-if="status === 'RECONNECTING'" class="state state--warn">
+          <span class="pill warn-orange"><span class="dot"></span>Reconectando</span>
+          <p class="state-msg">Tentando restabelecer a conexão...</p>
+        </div>
+
+        <div v-else-if="status === 'LOGGED_OUT'" class="state state--err">
+          <span class="pill off"><span class="dot"></span>Desconectado</span>
+          <p class="state-msg">Sessão encerrada. Gere um novo QR para reconectar.</p>
+        </div>
+
+        <div v-else class="state state--waiting">
+          <div class="spinner" aria-hidden="true"></div>
+          <p class="state-msg">Aguardando o serviço gerar o QR Code...</p>
+          <p class="state-meta">Status: {{ status || 'desconhecido' }}</p>
+        </div>
+
+        <div class="connect-actions">
+          <button
+            class="btn-ghost"
+            type="button"
+            :disabled="loading || resetting"
+            @click="fetchStatus"
+          >
+            Atualizar agora
+          </button>
+          <button
+            class="btn-danger"
+            type="button"
+            :disabled="resetting"
+            @click="resetConnection"
+          >
+            {{ resetting ? 'Resetando...' : 'Gerar novo QR' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -57,11 +84,12 @@
 <script>
 import axios from 'axios';
 import QrcodeVue from 'qrcode.vue';
+import Topbar from './Topbar.vue';
 
 export default {
   name: 'WhatsAppConnect',
 
-  components: { QrcodeVue },
+  components: { QrcodeVue, Topbar },
 
   props: {
     instanceSlug: {
@@ -104,7 +132,6 @@ export default {
     this.stopPolling();
   },
 
-  // Compat Vue 2
   beforeDestroy() {
     this.stopPolling();
   },
@@ -127,8 +154,6 @@ export default {
       try {
         const { data } = await axios.get(this.statusEndpoint);
         this.status = data.status;
-        // O endpoint atual proxia do Node, que devolve `qr`.
-        // (No legado da tabela `whatsapp_setups` o campo era `qr_code`.)
         this.qrCode = data.qr || data.qr_code || null;
         this.lastEventAt = data.last_event_at || data.last_update || null;
         this.projectName = data.name || null;
@@ -172,92 +197,224 @@ export default {
 </script>
 
 <style scoped>
-.wa-connect {
-  max-width: 420px;
-  margin: 2rem auto;
-  padding: 1.5rem;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  font-family: system-ui, sans-serif;
+.screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.connect-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px 48px;
+  min-height: calc(100vh - 64px);
+}
+
+.connect-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 28px 32px 32px;
+  box-shadow: var(--shadow-lg);
   text-align: center;
 }
 
-.wa-connect__header {
-  text-align: left;
-  margin-bottom: 1rem;
-}
-.wa-connect__title {
-  margin: .35rem 0 0;
-  font-size: 1.15rem;
-}
-.wa-back {
-  display: inline-block;
-  font-size: .8rem;
-  color: #64748b;
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brand);
+  font-weight: 700;
+  font-size: 13.5px;
+  margin-bottom: 20px;
   text-decoration: none;
-}
-.wa-back:hover {
-  color: #1e293b;
-  text-decoration: underline;
+  transition: opacity 0.12s;
+  float: left;
 }
 
-.wa-state {
-  margin: 1rem 0;
-  padding: 1rem;
-  border-radius: 8px;
+.back:hover {
+  opacity: 0.7;
 }
 
-.wa-state--loading   { background: #f1f5f9; color: #475569; }
-.wa-state--ok        { background: #ecfdf5; color: #065f46; }
-.wa-state--pending   { background: #fffbeb; color: #92400e; }
-.wa-state--waiting   { background: #fef2f2; color: #991b1b; }
-
-.wa-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 6px;
-}
-.wa-dot--ok   { background: #10b981; }
-.wa-dot--warn { background: #f59e0b; }
-
-.wa-meta {
-  margin-top: .5rem;
-  font-size: .85rem;
-  opacity: .75;
+.connect-title {
+  clear: both;
+  margin: 0 0 24px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: left;
 }
 
-.wa-actions {
-  margin-top: 1rem;
+.state {
   display: flex;
-  gap: .5rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 20px;
+}
+
+.state-msg {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.state-meta {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--line);
+  border-top-color: var(--brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: 999px;
+}
+
+.pill.on {
+  background: var(--brand-soft);
+  color: #b794f6;
+}
+
+.pill.warn {
+  background: rgba(234, 179, 8, 0.2);
+  color: #e8c96e;
+}
+
+.pill.warn-orange {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fbbf7a;
+}
+
+.pill.off {
+  background: rgba(240, 90, 75, 0.16);
+  color: #f08a7e;
+}
+
+.pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.qr-wrap {
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  display: inline-block;
+  box-shadow: var(--shadow);
+}
+
+.connect-actions {
+  display: flex;
+  gap: 10px;
   justify-content: center;
   flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
 }
-.wa-btn {
-  padding: .5rem 1rem;
-  border: none;
-  border-radius: 6px;
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--brand);
   color: #fff;
+  font-weight: 700;
+  font-size: 14.5px;
+  padding: 12px 20px;
+  border-radius: 13px;
+  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.35);
+  transition: transform 0.12s, box-shadow 0.12s, background 0.12s;
+  text-decoration: none;
+  border: none;
   cursor: pointer;
-  font-weight: 500;
+  font-family: inherit;
+  margin-top: 8px;
 }
-.wa-btn--primary { background: #2563eb; }
-.wa-btn--danger  { background: #dc2626; }
-.wa-btn:disabled {
-  opacity: .6;
+
+.btn-primary:hover {
+  background: var(--brand-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(139, 92, 246, 0.45);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-ghost {
+  font-weight: 700;
+  font-size: 14.5px;
+  padding: 12px 20px;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+  border-color: #4a4a4a;
+}
+
+.btn-ghost:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
-.wa-link {
-  display: inline-block;
-  padding: .5rem 1rem;
-  background: #008069;
-  color: #fff;
-  border-radius: 6px;
-  text-decoration: none;
-  font-weight: 600;
+
+.btn-danger {
+  font-weight: 700;
+  font-size: 14.5px;
+  padding: 12px 20px;
+  border-radius: 13px;
+  background: rgba(240, 90, 75, 0.16);
+  color: #f08a7e;
+  border: 1px solid rgba(240, 90, 75, 0.3);
+  transition: background 0.12s, transform 0.12s;
+  cursor: pointer;
+  font-family: inherit;
 }
-.wa-link:hover { background: #006e57; }
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(240, 90, 75, 0.28);
+  transform: translateY(-1px);
+}
+
+.btn-danger:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>
