@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Instance;
+use App\Models\Message;
+use App\Services\BaileysMessageParser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -13,6 +15,10 @@ class WhatsAppController extends Controller
 {
     private const HTTP_TIMEOUT       = 10;
     private const HTTP_MEDIA_TIMEOUT = 60;
+
+    public function __construct(private readonly BaileysMessageParser $parser)
+    {
+    }
 
     public function webhook(Request $request): JsonResponse
     {
@@ -27,11 +33,7 @@ class WhatsAppController extends Controller
         ]);
 
         if ($data['event'] === 'message') {
-            Log::info('Mensagem recebida do WhatsApp', [
-                'instance_id' => $data['instance_id'],
-                'payload'     => $data['payload'] ?? null,
-            ]);
-            return response()->json(['ok' => true]);
+            return $this->handleMessageEvent($data);
         }
 
         // O Laravel é a fonte autoritativa do `name` (legível pra UI).
@@ -50,6 +52,65 @@ class WhatsAppController extends Controller
         $instance->fill($attributes)->save();
 
         return response()->json(['ok' => true, 'instance' => $instance]);
+    }
+
+    private function handleMessageEvent(array $data): JsonResponse
+    {
+        $instance = Instance::where('slug', $data['instance_id'])->first();
+
+        if (!$instance) {
+            Log::warning('Webhook message recebido para instância inexistente', [
+                'instance_id' => $data['instance_id'],
+            ]);
+            return response()->json(['ok' => false, 'error' => 'instance not found'], 404);
+        }
+
+        $payload     = is_array($data['payload'] ?? null) ? $data['payload'] : [];
+        $rawMessages = is_array($payload['messages'] ?? null) ? $payload['messages'] : [];
+
+        $persisted = 0;
+        $skipped   = 0;
+
+        foreach ($rawMessages as $rawMsg) {
+            if (!is_array($rawMsg) || !$this->parser->isRealMessage($rawMsg)) {
+                $skipped++;
+                continue;
+            }
+
+            $summary = $this->parser->summarize($rawMsg);
+
+            // Sem whatsapp_message_id não há como deduplicar com segurança.
+            if (empty($summary['whatsapp_message_id'])) {
+                $skipped++;
+                continue;
+            }
+
+            Message::updateOrCreate(
+                [
+                    'instance_id'         => $instance->id,
+                    'whatsapp_message_id' => $summary['whatsapp_message_id'],
+                ],
+                [
+                    'direction'    => $summary['from_me'] ? 'out' : 'in',
+                    'status'       => $summary['from_me'] ? 'sent' : 'received',
+                    'jid'          => $summary['jid'],
+                    'from_me'      => $summary['from_me'],
+                    'message_type' => $summary['message_type'],
+                    'body'         => $summary['body'],
+                    'media_mime'   => $summary['media_mime'],
+                    'raw_payload'  => $rawMsg,
+                    'sent_at'      => $summary['from_me'] ? now() : null,
+                ],
+            );
+
+            $persisted++;
+        }
+
+        return response()->json([
+            'ok'        => true,
+            'persisted' => $persisted,
+            'skipped'   => $skipped,
+        ]);
     }
 
     public function getStatus(Instance $instance): JsonResponse

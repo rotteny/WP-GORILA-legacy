@@ -32,5 +32,6 @@ Route::prefix('v1')->middleware('api.key')->group(function () {
     Route::prefix('instances/{instance}')->group(function () {
         Route::get('/messages', [V1MessageController::class, 'index']);
         Route::post('/messages', [V1MessageController::class, 'store']);
+        Route::get('/messages/{message}', [V1MessageController::class, 'show']);
     });
 });
