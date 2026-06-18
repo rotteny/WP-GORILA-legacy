@@ -1,100 +1,121 @@
-# Auditoria do servidor de homolog `gorillasdev` (45.178.177.3)
+# Auditoria do servidor de homolog
 
-Data: 2026-06-17
-Objetivo: validar se o servidor suporta o piloto WP-GORILA (5-6 sessões WhatsApp simultâneas).
+Histórico de duas verificações: o servidor mudou entre uma auditoria e outra
+(parece que migramos de `gorillasdev` para `GTSystem` após o chefe expandir
+recursos / mover o projeto). Esse documento mantém o "antes vs depois" pra
+referência.
 
-## TL;DR
+## TL;DR (estado atual em 18/06/2026)
 
-✅ **CPU e RAM com folga grande** — servidor está ocioso, sobra recurso.
-❌ **Disco crítico (97% cheio)** — bloqueador antes do deploy.
-✅ **Já tem Laradock + Redis + Postgres rodando** — dá pra reusar em vez de subir cópias.
+✅ **Disco resolvido** — 88 GB livres (vs 533 MB críticos antes)
+✅ **CPU dobrada** — 16 cores
+✅ **Sem conflito de porta** com o WP-GORILA
+⚠️ **Servidor compartilhado** com outro Laradock (projeto "gtsystem", user `gattai`)
+⚠️ **Sem Redis** no homolog ainda — precisamos subir o nosso
 
-## Capacidade
+## Capacidade (homolog atual: `GTSystem`)
 
-| Recurso | Capacidade total | Em uso hoje | WP-GORILA precisa | Sobra |
+| Recurso | Total | Em uso | WP-GORILA precisa | Sobra após deploy |
 |---|---|---|---|---|
-| RAM | 15 GiB | 1.9 GiB (13%) | ~1.5 GiB (6 sessões) | 11.6 GiB |
-| CPU | 8 cores | load 0.02 | <1 core | 7+ cores |
-| **Disco** | **15 GB** | **13 GB (97%)** | **~3 GB** | **0.5 GB** |
+| RAM | 15 GiB | 1.8 GiB (12%) | ~1.5 GiB (6 sessões) | ~11.6 GiB |
+| CPU | 16 cores | load 0.68 | <1 core | 15+ cores |
+| **Disco** | **195 GB** | **98 GB (53%)** | **~3 GB** | **~85 GB** |
 
-## Inventário Docker atual
+## Comparação com auditoria anterior (`gorillasdev`, 17/06/2026)
 
-| Container | RAM em uso | Porta exposta |
+| Recurso | gorillasdev (17/06) | GTSystem (18/06) | Mudança |
+|---|---|---|---|
+| CPU | 8 cores | 16 cores | dobrou |
+| RAM total | 15 GiB | 15 GiB | igual |
+| Disco total | 15 GB | 195 GB | **+1200%** |
+| Disco livre | 533 MB (97% cheio) | 88 GB (53% usado) | desbloqueado |
+| Distro | Debian 12 | (não coletado, provável Debian) | — |
+
+## Inventário Docker atual no homolog
+
+### Containers rodando
+| Container | RAM | Porta no host |
 |---|---|---|
-| laradock-postgres-postgis-1 | 285 MiB | 5432 |
-| laradock-nginx-1 | 15 MiB | 80, 443, 81 |
-| laradock-redis-1 | 12 MiB | 6379 |
-| laradock-php-fpm-1 | 169 MiB | — |
-| laradock-php-worker-1 | 266 MiB | — |
-| laradock-workspace-1 | 707 MiB | 22→2222, 3000, 3001, 4200, 5173, 8001, 8080 |
-| laradock-docker-in-docker-1 | 47 MiB | — |
-| laradock-mailpit-1 | 18 MiB | 1025, 8025 |
+| laradock-nginx-1 | 7 MiB | 80, 81, 443 |
+| laradock-php-fpm-1 | 56 MiB | — |
+| laradock-php-worker-1 | 392 MiB | — (rodando `queue:work` do projeto `gtsystem`) |
+| laradock-workspace-1 | 14 MiB | 22→2222, 3000, 3001, 4200, 5173, 8001, 8080 |
+| laradock-postgres-1 | 61 MiB | 127.0.0.1:5432 |
+| laradock-docker-in-docker-1 | 64 MiB | — |
 
-Imagens: 9.2 GB. Build cache: 1.2 GB (~1 GB recuperável).
+**Total Docker (RAM):** ~600 MiB
 
-## Decisões propostas
+### Disco
+- Imagens: 19.24 GB (45 imagens; **6.52 GB recuperáveis** como dangling)
+- Containers: 257 MB
+- Volumes: 4 MB
+- Build cache: 7.77 GB (**1.42 GB recuperáveis**)
+- **Total Docker:** ~27 GB
+- **Liberação fácil possível:** ~8 GB sem prejuízo
 
-### 1. Reutilizar Laradock existente
-Em vez de clonar outro Laradock isolado, plugar o WP-GORILA no Laradock que já roda. Adicionar apenas:
-- container `whatsapp-service` (Node + Baileys) — ~400 MB de RAM, ~400 MB de imagem
-- migration nova no Postgres existente (cria tabela `instances`)
-
-Economia: ~5 GB de imagens Docker que NÃO precisam ser duplicadas.
-
-### 2. Reusar Redis e Postgres existentes
-- Redis: pro Chunk 4 (queue) e Chunk 5 (rate limit)
-- Postgres: criar database `whatsapp_piloto` separado dentro do mesmo container
-
-Risco compartilhado: se algum desenvolvedor mexe na infra do Laradock, afeta WP-GORILA também. Mitigação: nomear bem a database e configurar permissões por usuário.
-
-### 3. Domínio + Reverse proxy
-Configurar Nginx do Laradock pra rotear:
+### Portas em uso no host
 ```
-wp-gorila.gorila.local   →  proxy_pass http://workspace-laravel-do-wp:80
+21 (ftp), 22 (ssh), 80/81/443 (nginx), 2222 (workspace ssh),
+3000, 3001, 4200, 5173 (workspace front), 5432 (postgres local),
+8001, 8080 (workspace), 10050 (zabbix agent)
 ```
 
-## Pré-requisitos pra deploy (em ordem)
+## Conflito com portas do WP-GORILA: **NENHUM**
 
-### 🔴 Crítico (bloqueia deploy)
-1. **Liberar 5+ GB de disco** no root (`/`). Opções:
-   - `docker builder prune -a -f` (~1 GB)
-   - `docker image prune -a -f` (~1-3 GB)
-   - Configurar log rotation no daemon Docker
-   - Expandir LVM `template12--vg-root` se as limpezas não bastarem
+| Porta planejada WP-GORILA | Status |
+|---|---|
+| 8088 (Nginx) | ✅ livre |
+| 8181 (Varnish backend) | ✅ livre |
+| 8448 (HTTPS) | ✅ livre |
+| 5433 (Postgres) | ✅ livre |
+| 3020 (whatsapp-service) | ✅ livre |
+| 6379 (Redis) | ✅ livre |
+| 2232 (workspace SSH) | ✅ livre |
+| 3010, 3011, 4210, 5183, 8011, 8089 | ✅ todas livres |
 
-### 🟡 Importante (antes de produção)
-2. Validar quais ports do Laradock conflitam com WP-GORILA:
-   - WP-GORILA quer: 8088, 8181, 8448, 2232, 3010, 3011, 3020, 4210, 5183, 5433, 8011, 8089
-   - Laradock atual já usa: 80, 81, 443, 1025, 2222, 3000, 3001, 4200, 5173, 5432, 6379, 8001, 8025, 8080
-   - **Conflitos previstos:** nenhum (as portas que escolhemos pro WP-GORILA já estão fora dessa lista)
-3. Criar volume/diretório dedicado pro `auth_info/` do WP-GORILA — credenciais Baileys precisam persistir
-4. Plano de backup das `auth_info/{slug}/` (sem isso, perder o servidor = todos os WhatsApp deslogam)
+## Decisões para o deploy
 
-### 🟢 Bom ter
-5. Monitoring: Prometheus/Grafana ou métricas básicas via `docker stats`
-6. Alerta quando disco passar de 80% de uso
-7. Documentar quem é responsável pelo Laradock compartilhado (ev. troca de senha, restart, etc.)
+### 1. Laradock dedicado (não reusar o existente)
+O Laradock do `gtsystem` já está rodando e tem worker do projeto deles ativo.
+**Não vamos reaproveitar** — risco de impacto cruzado.
 
-## Conversa com infra — agenda sugerida
+Vamos clonar nosso próprio Laradock em `/home/gattai/wp-gorila/laradock/`
+(ou pasta equivalente que tenha permissão), com `COMPOSE_PROJECT_NAME=whatsapp_piloto`
+pra isolar redes e nomes de container.
 
-1. **Expansão de disco?** Estamos com 13 GB de 15 GB usados. Aumentar pra 50 GB cobre 1-2 anos de WP-GORILA com folga.
-2. **Existe outro servidor de homolog disponível?** Caso seja arriscado mexer no `gorillasdev`.
-3. **Política de backup atual** — saber se vai cobrir nossa pasta `auth_info`.
-4. **Quem mais usa esse Laradock?** Para coordenar deploys e evitar conflitos.
-5. **Acesso ao Docker daemon?** Confirmar que o `gorillas` (ou usuário do deploy) tem permissão sudo no docker.
+### 2. Subir nossos containers próprios
+- `whatsapp-service` (Node + Baileys) — porta interna 3000, host 3020
+- `whatsapp-worker` (queue:work do Laravel) — sem porta
+- `whatsapp_piloto-postgres-1` — porta host 5433 (Postgres separado do gtsystem)
+- `whatsapp_piloto-redis-1` — porta host 6379 (não existe Redis no homolog)
+- `whatsapp_piloto-nginx-1` — porta host 8088
+- `whatsapp_piloto-php-fpm-1` e `workspace-1` — sem conflito (project name diferente)
 
-## Comandos úteis pro pessoal de infra
+### 3. Storage dos `auth_info/{slug}/`
+Bind mount em `/home/gattai/wp-gorila/whatsapp-service/auth_info/`.
+Backup diário esse caminho (task Apoio do Clickup).
 
+### 4. Cleanup opcional antes do deploy
 ```bash
-# Espaço total do servidor
-df -h /
-
-# Quanto o Docker tá consumindo
-docker system df
-
-# Maiores logs de container
-du -sh /var/lib/docker/containers/*/*-json.log 2>/dev/null | sort -h | tail -10
-
-# Quem tá usando RAM
-ps aux --sort=-%mem | head -10
+docker builder prune -a -f    # ~1.4 GB
+docker image prune -a -f      # ~6.5 GB
 ```
+
+## Passo a passo de deploy (resumido)
+
+1. SSH em `gattai@GTSystem`
+2. `cd ~ && git clone git@github.com:rotteny/WP-GORILA.git wp-gorila && cd wp-gorila`
+3. `./setup.sh` (clona Laradock + ajusta .env + anexa snippet)
+4. `cd laradock && docker compose up -d nginx postgres redis whatsapp-service whatsapp-worker`
+5. Entrar no workspace e rodar: composer install, migrate, seeder, npm install, npm run build
+6. Validar via curl: `http://localhost:8088/api/v1/instances` (com X-API-Key)
+7. Configurar nginx do host (laradock-nginx-1 do gtsystem) ou Caddy pra rotear domínio externo
+8. Backup automatizado de `auth_info/`
+
+## Conversa com infra — o que ainda precisamos
+
+- [x] Espaço em disco (FEITO — chefe expandiu pra 195 GB)
+- [ ] Confirmar permissão do user `gattai` pra rodar Docker em pasta dedicada
+- [ ] Domínio externo (https://wp-gorila.gorila.tech ou subdomínio?)
+- [ ] Política de backup atual cobre `/home/gattai/wp-gorila/`?
+- [ ] Coordenar deploy/restart com responsável do gtsystem (não derrubar produção)
