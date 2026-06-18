@@ -127,8 +127,10 @@ export default {
       try {
         const { data } = await axios.get(this.statusEndpoint);
         this.status = data.status;
-        this.qrCode = data.qr_code || null;
-        this.lastEventAt = data.last_event_at || null;
+        // O endpoint atual proxia do Node, que devolve `qr`.
+        // (No legado da tabela `whatsapp_setups` o campo era `qr_code`.)
+        this.qrCode = data.qr || data.qr_code || null;
+        this.lastEventAt = data.last_event_at || data.last_update || null;
         this.projectName = data.name || null;
 
         if (this.status === 'CONNECTED') {
