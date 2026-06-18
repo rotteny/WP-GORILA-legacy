@@ -60,6 +60,14 @@ return [
             'report' => false,
         ],
 
+        'whatsapp_media' => [
+            'driver' => 'local',
+            'root' => storage_path('app/media'),
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*
