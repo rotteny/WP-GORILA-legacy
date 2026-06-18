@@ -8,6 +8,16 @@ return [
 
     'webhook_secret' => env('WEBHOOK_SECRET', ''),
 
+    // Rate limit por API key (middleware api.throttle).
+    // Aplicado em todo o grupo /api/v1; default 60 req/min.
+    'rate_limit_per_minute' => (int) env('API_RATE_LIMIT_PER_MINUTE', 60),
+
+    // Throttle anti-ban por instancia (servico AntiBanThrottle).
+    // Janela deslizante: max `anti_ban_burst` envios em
+    // `anti_ban_burst / anti_ban_limit_per_second` segundos.
+    'anti_ban_limit_per_second' => (int) env('ANTI_BAN_LIMIT_PER_SECOND', 1),
+    'anti_ban_burst' => (int) env('ANTI_BAN_BURST', 5),
+
     'webhooks' => [
         'local_allowlist' => array_filter(array_map('trim', explode(',', (string) env('WEBHOOK_LOCAL_ALLOWLIST', 'localhost,127.0.0.1')))),
         'request_timeout' => (int) env('WEBHOOK_REQUEST_TIMEOUT', 10),

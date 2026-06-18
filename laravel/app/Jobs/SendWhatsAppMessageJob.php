@@ -8,6 +8,7 @@ use App\Enums\MessageStatus;
 use App\Enums\WebhookEvent;
 use App\Models\Instance;
 use App\Models\Message;
+use App\Services\AntiBanThrottle;
 use App\Services\WebhookDispatcher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -58,7 +59,7 @@ class SendWhatsAppMessageJob implements ShouldQueue
         return [30, 120, 600];
     }
 
-    public function handle(WebhookDispatcher $dispatcher): void
+    public function handle(WebhookDispatcher $dispatcher, AntiBanThrottle $throttle): void
     {
         $message = Message::find($this->messageId);
         if (!$message) {
@@ -68,6 +69,15 @@ class SendWhatsAppMessageJob implements ShouldQueue
         $instance = $message->instance;
         if (!$instance) {
             $this->markFailed($message, 'instance not found');
+            return;
+        }
+
+        // Throttle anti-ban por instancia: se a janela deslizante atingiu
+        // o burst, devolve o job para a fila apos o tempo recomendado em
+        // vez de pressionar o numero e arriscar bloqueio do WhatsApp.
+        $wait = $throttle->attempt($instance->slug);
+        if ($wait > 0) {
+            $this->release($wait);
             return;
         }
 

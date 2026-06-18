@@ -28,6 +28,10 @@
 /laravel/public/build/
 /laravel/public/hot
 
+# Scribe: artefatos gerados (php artisan scribe:generate regenera)
+/laravel/.scribe/
+/laravel/public/docs/
+
 # Arquivos de ambiente
 .env
 .env.local

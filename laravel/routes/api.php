@@ -27,7 +27,7 @@ Route::prefix('whatsapp')->group(function () {
     });
 });
 
-Route::prefix('v1')->middleware('api.key')->group(function () {
+Route::prefix('v1')->middleware(['api.key', 'api.throttle'])->group(function () {
     Route::get('/instances', [V1InstanceController::class, 'index']);
     Route::get('/instances/{instance}', [V1InstanceController::class, 'show']);
 

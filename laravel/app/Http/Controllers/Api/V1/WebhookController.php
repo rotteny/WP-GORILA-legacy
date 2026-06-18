@@ -14,12 +14,45 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
+/**
+ * @group Webhooks
+ *
+ * Gerencia endpoints outbound para receber eventos da WP-GORILA.
+ * Eventos suportados: `message.received`, `message.sent`, `message.delivered`,
+ * `message.read`.
+ *
+ * Toda entrega e assinada via HMAC-SHA256 no header **`X-Gorila-Signature`**
+ * (formato `sha256=<hex>`). O timestamp da entrega vai em **`X-Gorila-Timestamp`**.
+ * Valide assinatura concatenando `timestamp + "." + body` e comparando com
+ * o secret retornado **uma unica vez** na criacao do endpoint.
+ */
 class WebhookController extends Controller
 {
     private const DEFAULT_LIMIT = 50;
     private const MAX_LIMIT = 200;
     private const SECRET_BYTES = 32;
 
+    /**
+     * Listar webhooks
+     *
+     * Lista endpoints outbound configurados para a instancia.
+     * O campo `secret` **nao** e retornado — so e exibido na criacao.
+     *
+     * @urlParam instance string required Slug do projeto. Example: gorila-vendas
+     *
+     * @response 200 scenario="sucesso" {
+     *   "data": [
+     *     {
+     *       "id": 7,
+     *       "name": "ERP integration",
+     *       "url": "https://erp.cliente.com/webhooks/whatsapp",
+     *       "events": ["message.received", "message.sent"],
+     *       "active": true,
+     *       "created_at": "2026-06-15T10:00:00+00:00"
+     *     }
+     *   ]
+     * }
+     */
     public function index(Instance $instance): AnonymousResourceCollection
     {
         $endpoints = WebhookEndpoint::query()
@@ -30,6 +63,34 @@ class WebhookController extends Controller
         return WebhookResource::collection($endpoints);
     }
 
+    /**
+     * Criar webhook
+     *
+     * Registra um novo endpoint outbound. A resposta retorna o `secret`
+     * **apenas nesta unica chamada** — guarde-o; o servidor armazena somente
+     * uma copia interna usada para assinar entregas. Em producao, URLs `http://`
+     * sao bloqueadas (exceto hosts na allowlist).
+     *
+     * @urlParam instance string required Slug do projeto. Example: gorila-vendas
+     *
+     * @bodyParam name string required Nome amigavel do endpoint (max. 128). Example: ERP integration
+     * @bodyParam url string required URL HTTPS de destino. Example: https://erp.cliente.com/webhooks/whatsapp
+     * @bodyParam events string[] required Eventos a receber. Valores: message.received, message.sent, message.delivered, message.read. Example: ["message.received", "message.sent"]
+     *
+     * @response 201 scenario="criado" {
+     *   "status": "success",
+     *   "message": "Webhook criado. Guarde o secret - nao sera exibido novamente.",
+     *   "data": {
+     *     "id": 7,
+     *     "name": "ERP integration",
+     *     "url": "https://erp.cliente.com/webhooks/whatsapp",
+     *     "events": ["message.received", "message.sent"],
+     *     "active": true,
+     *     "secret": "a3f8b0c2d4e6...64chars"
+     *   }
+     * }
+     * @response 422 scenario="URL invalida" {"message": "url precisa ser https (exceto hosts permitidos).", "errors": {"url": ["url precisa ser https (exceto hosts permitidos)."]}}
+     */
     public function store(StoreWebhookRequest $request, Instance $instance): JsonResponse
     {
         $secret = bin2hex(random_bytes(self::SECRET_BYTES));
@@ -54,6 +115,27 @@ class WebhookController extends Controller
         ], 201);
     }
 
+    /**
+     * Detalhar webhook
+     *
+     * Retorna o detalhe de um endpoint. `secret` nunca e exposto aqui.
+     *
+     * @urlParam instance string required Slug do projeto. Example: gorila-vendas
+     * @urlParam webhook integer required ID do endpoint. Example: 7
+     *
+     * @response 200 scenario="sucesso" {
+     *   "status": "success",
+     *   "message": "Webhook recuperado.",
+     *   "data": {
+     *     "id": 7,
+     *     "name": "ERP integration",
+     *     "url": "https://erp.cliente.com/webhooks/whatsapp",
+     *     "events": ["message.received"],
+     *     "active": true
+     *   }
+     * }
+     * @response 404 scenario="webhook nao pertence a instancia" {"message": "Not Found"}
+     */
     public function show(Instance $instance, WebhookEndpoint $webhook): JsonResponse
     {
         $this->assertOwnership($instance, $webhook);
@@ -65,6 +147,19 @@ class WebhookController extends Controller
         ]);
     }
 
+    /**
+     * Remover webhook
+     *
+     * Remove permanentemente o endpoint outbound. Entregas pendentes em fila
+     * sao descartadas. Para apenas desativar temporariamente, prefira atualizar
+     * o campo `active`.
+     *
+     * @urlParam instance string required Slug do projeto. Example: gorila-vendas
+     * @urlParam webhook integer required ID do endpoint. Example: 7
+     *
+     * @response 200 scenario="removido" {"status": "success", "message": "Webhook removido.", "data": []}
+     * @response 404 scenario="webhook nao encontrado" {"message": "Not Found"}
+     */
     public function destroy(Instance $instance, WebhookEndpoint $webhook): JsonResponse
     {
         $this->assertOwnership($instance, $webhook);
@@ -78,6 +173,35 @@ class WebhookController extends Controller
         ]);
     }
 
+    /**
+     * Listar entregas de um webhook
+     *
+     * Retorna o historico de tentativas de entrega (deliveries) para o endpoint.
+     * Util para debug e reconciliacao. Suporta filtros por status, evento e
+     * paginacao via cursor.
+     *
+     * @urlParam instance string required Slug do projeto. Example: gorila-vendas
+     * @urlParam webhook integer required ID do endpoint. Example: 7
+     *
+     * @queryParam status string Filtra por status. Valores: pending, succeeded, failed. Example: failed
+     * @queryParam event string Filtra por nome do evento. Example: message.received
+     * @queryParam cursor integer ID da ultima entrega da pagina anterior. Example: 5000
+     * @queryParam limit integer Quantidade por pagina (1-200). Default: 50. Example: 50
+     *
+     * @response 200 scenario="sucesso" {
+     *   "data": [
+     *     {
+     *       "id": 5001,
+     *       "event": "message.received",
+     *       "status": "succeeded",
+     *       "attempts": 1,
+     *       "response_status": 200,
+     *       "delivered_at": "2026-06-18T14:01:25+00:00"
+     *     }
+     *   ],
+     *   "meta": {"limit": 50, "has_more": false, "next_cursor": null}
+     * }
+     */
     public function deliveries(
         Request $request,
         Instance $instance,
