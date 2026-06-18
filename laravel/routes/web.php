@@ -16,3 +16,8 @@ Route::get('/p/{slug}/qr', function (string $slug) {
 Route::get('/p/{slug}/chat', function (string $slug) {
     return view('chat', ['slug' => $slug]);
 })->where('slug', '[a-z0-9_-]+');
+
+// Gerenciamento de webhooks de uma instância específica.
+Route::get('/p/{slug}/webhooks', function (string $slug) {
+    return view('webhooks', ['slug' => $slug]);
+})->where('slug', '[a-z0-9_-]+');

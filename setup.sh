@@ -86,18 +86,30 @@ patch_env POSTGRES_PORT                      "5433"
 green "    .env ajustado."
 
 # -----------------------------------------------------------------------------
-# 3. Anexar whatsapp-service no docker-compose.yml
+# 3. Anexar serviços (whatsapp-service + whatsapp-worker) no docker-compose.yml
 # -----------------------------------------------------------------------------
 COMPOSE_FILE="$LARADOCK_DIR/docker-compose.yml"
-MARKER="### WhatsApp Service (Baileys)"
+MARKER_SVC="### WhatsApp Service (Baileys)"
+MARKER_WRK="### WhatsApp Queue Worker (Laravel)"
 
-cyan "[3/4] Anexando whatsapp-service em $COMPOSE_FILE..."
-if grep -q "$MARKER" "$COMPOSE_FILE"; then
-  yellow "    Snippet já presente — pulando."
+cyan "[3/4] Garantindo serviços do projeto em $COMPOSE_FILE..."
+
+# whatsapp-service: bloco completo (linhas até logo antes do worker)
+if grep -q "$MARKER_SVC" "$COMPOSE_FILE"; then
+  yellow "    whatsapp-service já presente — pulando."
 else
   printf "\n" >> "$COMPOSE_FILE"
-  cat "$SNIPPET" >> "$COMPOSE_FILE"
-  green "    Snippet anexado."
+  awk "/$MARKER_WRK/{exit} {print}" "$SNIPPET" >> "$COMPOSE_FILE"
+  green "    whatsapp-service anexado."
+fi
+
+# whatsapp-worker: anexado separadamente para suportar evolução incremental
+if grep -q "$MARKER_WRK" "$COMPOSE_FILE"; then
+  yellow "    whatsapp-worker já presente — pulando."
+else
+  printf "\n" >> "$COMPOSE_FILE"
+  awk "/$MARKER_WRK/{flag=1} flag" "$SNIPPET" >> "$COMPOSE_FILE"
+  green "    whatsapp-worker anexado."
 fi
 
 # -----------------------------------------------------------------------------

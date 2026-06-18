@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\WebhookEvent;
+use App\Jobs\DownloadInboundMediaJob;
 use App\Models\Instance;
 use App\Models\Message;
 use App\Services\BaileysMessageParser;
+use App\Services\WebhookDispatcher;
+use App\Services\WhatsAppMediaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -16,24 +20,34 @@ class WhatsAppController extends Controller
     private const HTTP_TIMEOUT       = 10;
     private const HTTP_MEDIA_TIMEOUT = 60;
 
-    public function __construct(private readonly BaileysMessageParser $parser)
-    {
+    public function __construct(
+        private readonly BaileysMessageParser $parser,
+        private readonly WhatsAppMediaService $mediaService,
+        private readonly WebhookDispatcher $webhookDispatcher,
+    ) {
     }
 
     public function webhook(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'instance_id' => 'required|string',
-            'event'       => 'required|string',
-            'status'      => 'nullable|string',
-            'qr'          => 'nullable|string',
-            'qr_data_url' => 'nullable|string',
-            'timestamp'   => 'nullable|string',
-            'payload'     => 'nullable',
+            'instance_id'         => 'required|string',
+            'event'               => 'required|string',
+            'status'              => 'nullable|string',
+            'qr'                  => 'nullable|string',
+            'qr_data_url'         => 'nullable|string',
+            'timestamp'           => 'nullable|string',
+            'payload'             => 'nullable',
+            'whatsapp_message_id' => 'nullable|string',
+            'jid'                 => 'nullable|string',
+            'from_me'             => 'nullable|boolean',
         ]);
 
         if ($data['event'] === 'message') {
             return $this->handleMessageEvent($data);
+        }
+
+        if ($data['event'] === 'message-status') {
+            return $this->handleMessageStatusEvent($data);
         }
 
         // O Laravel é a fonte autoritativa do `name` (legível pra UI).
@@ -85,7 +99,7 @@ class WhatsAppController extends Controller
                 continue;
             }
 
-            Message::updateOrCreate(
+            $message = Message::updateOrCreate(
                 [
                     'instance_id'         => $instance->id,
                     'whatsapp_message_id' => $summary['whatsapp_message_id'],
@@ -103,6 +117,26 @@ class WhatsAppController extends Controller
                 ],
             );
 
+            if (!$summary['from_me'] && $this->mediaService->isMediaType($summary['message_type'])) {
+                // Job em background — webhook do Node tem timeout 5s e o
+                // download de midia pode levar ate 60s; nao bloqueamos
+                // a resposta do webhook por isso.
+                DownloadInboundMediaJob::dispatch($instance->id, $message->id)
+                    ->afterCommit();
+            }
+
+            // Dispatch outbound webhook `message.received` apenas em mensagens
+            // realmente novas e inbound; wasRecentlyCreated evita duplicar em
+            // updates idempotentes do mesmo whatsapp_message_id.
+            if (!$summary['from_me'] && $message->wasRecentlyCreated) {
+                $this->webhookDispatcher->dispatch(
+                    $instance,
+                    WebhookEvent::MessageReceived,
+                    $this->buildMessagePayload($message, $instance),
+                    $message,
+                );
+            }
+
             $persisted++;
         }
 
@@ -111,6 +145,121 @@ class WhatsAppController extends Controller
             'persisted' => $persisted,
             'skipped'   => $skipped,
         ]);
+    }
+
+    /**
+     * Atualiza timestamps de delivery/read na Message e dispara
+     * o webhook outbound correspondente. Mantem `status='sent'`
+     * porque `delivered`/`read` sao refinamentos do mesmo estado.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function handleMessageStatusEvent(array $data): JsonResponse
+    {
+        $instance = Instance::where('slug', $data['instance_id'])->first();
+        if (!$instance) {
+            Log::warning('Webhook message-status para instancia inexistente', [
+                'instance_id' => $data['instance_id'],
+            ]);
+            return response()->json(['ok' => false, 'error' => 'instance not found'], 404);
+        }
+
+        $waId = (string) ($data['whatsapp_message_id'] ?? '');
+        if ($waId === '') {
+            return response()->json(['ok' => false, 'error' => 'whatsapp_message_id required'], 422);
+        }
+
+        $message = Message::where('instance_id', $instance->id)
+            ->where('whatsapp_message_id', $waId)
+            ->first();
+
+        if (!$message) {
+            Log::warning('message-status para Message inexistente', [
+                'instance_id' => $instance->slug,
+                'whatsapp_message_id' => $waId,
+            ]);
+            return response()->json(['ok' => true, 'updated' => 0]);
+        }
+
+        $statusKey = (string) ($data['status'] ?? '');
+        $event = $this->applyMessageStatus($message, $statusKey);
+        $message->save();
+
+        if ($event !== null) {
+            $this->webhookDispatcher->dispatch(
+                $instance,
+                $event,
+                $this->buildMessagePayload($message, $instance),
+                $message,
+            );
+        }
+
+        return response()->json(['ok' => true, 'updated' => 1]);
+    }
+
+    /**
+     * Aplica o status do Node na Message e devolve o evento outbound
+     * a ser disparado (ou null se nao for o caso).
+     *
+     * `sent` nao dispara outbound aqui — SendWhatsAppMessageJob ja
+     * dispara `message.sent` ao confirmar o envio.
+     */
+    private function applyMessageStatus(Message $message, string $statusKey): ?WebhookEvent
+    {
+        return match ($statusKey) {
+            'delivered' => $this->applyDeliveredStatus($message),
+            'read' => $this->applyReadStatus($message),
+            'sent' => $this->applySentStatus($message),
+            default => null,
+        };
+    }
+
+    private function applyDeliveredStatus(Message $message): WebhookEvent
+    {
+        $message->delivered_at = $message->delivered_at ?? now();
+        $message->status = 'sent';
+
+        return WebhookEvent::MessageDelivered;
+    }
+
+    private function applyReadStatus(Message $message): WebhookEvent
+    {
+        $message->delivered_at = $message->delivered_at ?? now();
+        $message->read_at = $message->read_at ?? now();
+        $message->status = 'sent';
+
+        return WebhookEvent::MessageRead;
+    }
+
+    private function applySentStatus(Message $message): ?WebhookEvent
+    {
+        $message->sent_at = $message->sent_at ?? now();
+        $message->status = 'sent';
+
+        return null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildMessagePayload(Message $message, Instance $instance): array
+    {
+        return [
+            'message_id' => $message->id,
+            'whatsapp_message_id' => $message->whatsapp_message_id,
+            'client_message_id' => $message->client_message_id,
+            'instance_slug' => $instance->slug,
+            'direction' => $message->direction,
+            'status' => $message->status,
+            'jid' => $message->jid,
+            'from_me' => (bool) $message->from_me,
+            'message_type' => $message->message_type,
+            'body' => $message->body,
+            'media_mime' => $message->media_mime,
+            'sent_at' => $message->sent_at?->toIso8601String(),
+            'delivered_at' => $message->delivered_at?->toIso8601String(),
+            'read_at' => $message->read_at?->toIso8601String(),
+        ];
     }
 
     public function getStatus(Instance $instance): JsonResponse
@@ -145,11 +294,13 @@ class WhatsAppController extends Controller
 
     public function sendMedia(Request $request, Instance $instance): JsonResponse
     {
+        $maxKb = (int) config('whatsapp.media.max_mb', 20) * 1024;
+
         $data = $request->validate([
             'number'  => 'required_without:jid|string',
             'jid'     => 'required_without:number|string',
             'caption' => 'nullable|string|max:1024',
-            'file'    => 'required|file|max:25600',
+            'file'    => 'required|file|max:' . $maxKb,
         ]);
 
         $file = $request->file('file');
@@ -190,6 +341,15 @@ class WhatsAppController extends Controller
 
     public function media(Instance $instance, string $messageId): Response|JsonResponse
     {
+        $message = Message::query()
+            ->where('instance_id', $instance->id)
+            ->where('whatsapp_message_id', $messageId)
+            ->first();
+
+        if ($message && $message->media_path) {
+            return $this->mediaService->serve($instance, $message);
+        }
+
         try {
             $response = Http::timeout(30)
                 ->get($this->nodeBaseUrl() . '/instances/' . $instance->slug . '/media/' . urlencode($messageId));

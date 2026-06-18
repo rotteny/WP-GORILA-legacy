@@ -53,6 +53,29 @@ DB_PASSWORD=secret
 WHATSAPP_SERVICE_URL=http://whatsapp-service:3000
 ```
 
+## Variáveis de fila/Redis (Laravel)
+
+Acrescente em `laravel/.env`:
+
+```dotenv
+QUEUE_CONNECTION=redis
+REDIS_CLIENT=predis
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=null
+```
+
+> `REDIS_CLIENT=predis` é obrigatório — usamos `predis/predis` (PHP puro) em vez da extensão `phpredis` para evitar rebuild do container workspace.
+
+## Subir o worker e o Redis
+
+```bash
+cd laradock
+docker compose up -d redis
+docker compose up -d whatsapp-worker
+docker compose logs -f whatsapp-worker
+```
+
 ## Porta exposta do `whatsapp-service`
 
 No host: **`127.0.0.1:3020`** → porta 3000 dentro do container.

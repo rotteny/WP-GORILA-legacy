@@ -8,6 +8,12 @@
  *
  * Todos os endpoints sao parametrizados por :id (slug da instancia).
  * O webhook ao Laravel inclui `instance_id` em todo evento.
+ *
+ * Eventos enviados ao Laravel:
+ *   - event: 'message'        — mensagem nova (messages.upsert)
+ *   - event: 'message-status' — atualização de status (messages.update):
+ *                                status ∈ {sent, delivered, read}
+ *   - event: 'qr'|'connected'|'disconnected'|'reset' — connection lifecycle
  */
 
 const express = require('express');
@@ -33,8 +39,51 @@ const PORT = process.env.PORT || 3000;
 const WEBHOOK_URL =
   process.env.LARAVEL_WEBHOOK_URL || 'http://nginx/api/whatsapp/webhook';
 const AUTH_DIR = process.env.AUTH_DIR || '/usr/src/app/auth_info';
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+const MEDIA_URL_ALLOWLIST = (process.env.MEDIA_URL_ALLOWLIST || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const crypto = require('crypto');
 
 const INBOX_SIZE = 500;
+const MAX_MEDIA_BYTES = parseInt(
+  process.env.MAX_MEDIA_BYTES || String(20 * 1024 * 1024),
+  10,
+);
+
+const ALLOWED_MIMES = {
+  image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  video: ['video/mp4', 'video/quicktime', 'video/3gpp'],
+  audio: [
+    'audio/ogg',
+    'audio/mpeg',
+    'audio/mp4',
+    'audio/aac',
+    'audio/opus',
+    'audio/webm',
+  ],
+  document: [
+    'application/pdf',
+    'application/zip',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/plain',
+    'application/octet-stream',
+  ],
+};
+
+const SEND_TYPES = new Set([
+  'text',
+  'image',
+  'video',
+  'audio',
+  'document',
+  'location',
+  'contact',
+]);
 
 const logger = pino({ level: 'info' });
 
@@ -64,11 +113,17 @@ function createInstanceState(slug, name) {
 
 async function notifyLaravel(instance, payload) {
   try {
-    await axios.post(
-      WEBHOOK_URL,
-      { instance_id: instance.slug, ...payload },
-      { timeout: 5000, headers: { 'Content-Type': 'application/json' } },
-    );
+    const body = JSON.stringify({ instance_id: instance.slug, ...payload });
+    const headers = { 'Content-Type': 'application/json' };
+
+    if (WEBHOOK_SECRET) {
+      headers['X-WhatsApp-Signature'] = crypto
+        .createHmac('sha256', WEBHOOK_SECRET)
+        .update(body)
+        .digest('hex');
+    }
+
+    await axios.post(WEBHOOK_URL, body, { timeout: 5000, headers });
     logger.info(
       { slug: instance.slug, event: payload.event },
       'webhook entregue ao Laravel',
@@ -127,6 +182,16 @@ function chatTypeFromJid(jid) {
   if (jid.endsWith('@lid')) return 'private_lid';
   if (jid.endsWith('@s.whatsapp.net')) return 'private';
   return 'unknown';
+}
+
+function mapBaileysStatus(code) {
+  switch (code) {
+    case 2: return 'sent';        // SERVER_ACK
+    case 3: return 'delivered';   // DELIVERY_ACK
+    case 4: return 'read';        // READ
+    case 5: return 'read';        // PLAYED (consideramos como leitura)
+    default: return null;         // PENDING (1) e desconhecidos: ignora
+  }
 }
 
 function summarizeMessage(rawMsg) {
@@ -297,6 +362,33 @@ async function startBaileys(slug) {
       timestamp: new Date().toISOString(),
     });
   });
+
+  instance.sock.ev.on('messages.update', (updates) => {
+    if (!Array.isArray(updates) || updates.length === 0) return;
+
+    for (const u of updates) {
+      const id = u?.key?.id;
+      const jid = u?.key?.remoteJid;
+      const fromMe = Boolean(u?.key?.fromMe);
+      const statusCode = u?.update?.status;
+
+      // Baileys enum (WAMessageStatus):
+      //   1 = PENDING, 2 = SERVER_ACK (sent),
+      //   3 = DELIVERY_ACK (delivered), 4 = READ, 5 = PLAYED
+      // Mapeamos para o vocabulário interno do Laravel.
+      const status = mapBaileysStatus(statusCode);
+      if (!id || !status) continue;
+
+      notifyLaravel(instance, {
+        event: 'message-status',
+        whatsapp_message_id: id,
+        jid,
+        from_me: fromMe,
+        status,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
 }
 
 // =============================================================================
@@ -356,6 +448,157 @@ function isValidSlug(s) {
   return typeof s === 'string' && /^[a-z0-9][a-z0-9_-]{0,30}$/.test(s);
 }
 
+function resolveTarget({ jid, number, to }) {
+  if (jid) return jid;
+  const digits = String(number || to || '').replace(/\D/g, '');
+  if (!digits) return null;
+  return `${digits}@s.whatsapp.net`;
+}
+
+function normalizeMime(mime) {
+  return String(mime || 'application/octet-stream')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+}
+
+function validateMimeForType(type, mime) {
+  const normalized = normalizeMime(mime);
+  const allowed = ALLOWED_MIMES[type];
+  if (!allowed || !allowed.includes(normalized)) {
+    throw new Error(`MIME "${normalized}" nao permitido para tipo "${type}"`);
+  }
+  return normalized;
+}
+
+function isSafeMediaUrl(rawUrl) {
+  let url;
+  try {
+    url = new URL(String(rawUrl));
+  } catch (_) {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  if (MEDIA_URL_ALLOWLIST.length === 0) return false;
+  return MEDIA_URL_ALLOWLIST.includes(url.hostname);
+}
+
+async function resolveMediaBuffer(payload, type) {
+  if (payload?.buffer instanceof Buffer) {
+    if (payload.buffer.length > MAX_MEDIA_BYTES) {
+      throw new Error(`midia excede limite de ${MAX_MEDIA_BYTES} bytes`);
+    }
+    return payload.buffer;
+  }
+
+  if (payload?.media_base64) {
+    const buffer = Buffer.from(String(payload.media_base64), 'base64');
+    if (buffer.length > MAX_MEDIA_BYTES) {
+      throw new Error(`midia excede limite de ${MAX_MEDIA_BYTES} bytes`);
+    }
+    return buffer;
+  }
+
+  if (payload?.media_url) {
+    if (!isSafeMediaUrl(payload.media_url)) {
+      throw new Error('media_url precisa ser https e ter host na allowlist (MEDIA_URL_ALLOWLIST)');
+    }
+    const resp = await axios.get(String(payload.media_url), {
+      responseType: 'arraybuffer',
+      maxContentLength: MAX_MEDIA_BYTES,
+      maxBodyLength: MAX_MEDIA_BYTES,
+      timeout: 60000,
+    });
+    const buffer = Buffer.from(resp.data);
+    if (buffer.length > MAX_MEDIA_BYTES) {
+      throw new Error(`midia excede limite de ${MAX_MEDIA_BYTES} bytes`);
+    }
+    return buffer;
+  }
+
+  throw new Error('informe media_base64 ou media_url (https + allowlist)');
+}
+
+function buildMediaPayload(type, buffer, payload) {
+  const mime = validateMimeForType(type, payload.mimetype || payload.mime);
+  const caption = payload.caption || undefined;
+  const filename = payload.filename || payload.fileName || 'arquivo';
+
+  if (type === 'image') {
+    return { image: buffer, caption, mimetype: mime };
+  }
+  if (type === 'video') {
+    return { video: buffer, caption, mimetype: mime };
+  }
+  if (type === 'audio') {
+    const isOgg = mime.includes('ogg') || mime.includes('opus');
+    return {
+      audio: buffer,
+      mimetype: isOgg ? 'audio/ogg; codecs=opus' : mime,
+      ptt: Boolean(payload.ptt ?? isOgg),
+    };
+  }
+  return {
+    document: buffer,
+    mimetype: mime,
+    fileName: filename,
+    caption,
+  };
+}
+
+async function buildSendPayload(body) {
+  const { type, message, payload = {} } = body;
+
+  if (!type && message) {
+    return { text: String(message) };
+  }
+
+  const msgType = type || 'text';
+  if (!SEND_TYPES.has(msgType)) {
+    throw new Error(`tipo "${msgType}" invalido`);
+  }
+
+  if (msgType === 'text') {
+    const text = payload.message ?? message ?? payload.text;
+    if (!text) throw new Error('informe payload.message para tipo text');
+    return { text: String(text) };
+  }
+
+  if (['image', 'video', 'audio', 'document'].includes(msgType)) {
+    const buffer = await resolveMediaBuffer(payload, msgType);
+    return buildMediaPayload(msgType, buffer, payload);
+  }
+
+  if (msgType === 'location') {
+    const lat = payload.latitude ?? payload.lat;
+    const lng = payload.longitude ?? payload.lng;
+    if (lat == null || lng == null) {
+      throw new Error('informe payload.latitude e payload.longitude');
+    }
+    return {
+      location: {
+        degreesLatitude: Number(lat),
+        degreesLongitude: Number(lng),
+        name: payload.name || undefined,
+        address: payload.address || undefined,
+      },
+    };
+  }
+
+  if (msgType === 'contact') {
+    const vcard = payload.vcard;
+    if (!vcard) throw new Error('informe payload.vcard');
+    return {
+      contacts: {
+        displayName: payload.display_name || payload.displayName || 'Contato',
+        contacts: [{ vcard: String(vcard) }],
+      },
+    };
+  }
+
+  throw new Error(`tipo "${msgType}" nao suportado`);
+}
+
 // =============================================================================
 // EXPRESS APP
 // =============================================================================
@@ -365,7 +608,7 @@ app.use(express.json({ limit: '5mb' }));
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: MAX_MEDIA_BYTES },
 });
 
 // ----- INSTANCES CRUD --------------------------------------------------------
@@ -480,22 +723,39 @@ app.post('/instances/:id/reset', attachInstance, async (req, res) => {
 
 app.post('/instances/:id/send-message', attachInstance, requireConnected, async (req, res) => {
   const instance = req.instance;
-  const { jid, number, message } = req.body || {};
+  const body = req.body || {};
+  const { jid, number, to, message, type, payload } = body;
 
-  if (!message || (!jid && !number)) {
-    return res
-      .status(422)
-      .json({ ok: false, error: 'informe "message" e "jid" ou "number"' });
+  const target = resolveTarget({ jid, number, to });
+  if (!target) {
+    return res.status(422).json({
+      ok: false,
+      error: 'informe "jid", "number" ou "to"',
+    });
   }
 
-  const target = jid || `${String(number).replace(/\D/g, '')}@s.whatsapp.net`;
+  const hasLegacyText = !type && message;
+  const hasTypedPayload = type || (payload && Object.keys(payload).length > 0);
+  if (!hasLegacyText && !hasTypedPayload) {
+    return res.status(422).json({
+      ok: false,
+      error: 'informe type+payload ou message (legado)',
+    });
+  }
 
   try {
-    const result = await instance.sock.sendMessage(target, { text: String(message) });
-    res.json({ ok: true, id: result?.key?.id ?? null, to: target });
+    const sendPayload = await buildSendPayload({ type, message, payload });
+    const result = await instance.sock.sendMessage(target, sendPayload);
+    res.json({
+      ok: true,
+      id: result?.key?.id ?? null,
+      to: target,
+      type: type || 'text',
+    });
   } catch (err) {
+    const status = err.message.includes('informe') || err.message.includes('invalido') ? 422 : 500;
     logger.error({ slug: instance.slug, err: err.message }, 'falha ao enviar mensagem');
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(status).json({ ok: false, error: err.message });
   }
 });
 
@@ -516,25 +776,20 @@ app.post('/instances/:id/send-media', attachInstance, requireConnected, upload.s
   const mime = req.file.mimetype || 'application/octet-stream';
   const filename = req.file.originalname || 'arquivo';
 
+  let mediaType = 'document';
+  if (mime.startsWith('image/')) mediaType = 'image';
+  else if (mime.startsWith('video/')) mediaType = 'video';
+  else if (mime.startsWith('audio/')) mediaType = 'audio';
+
   let payload;
-  if (mime.startsWith('image/')) {
-    payload = { image: buffer, caption: caption || undefined };
-  } else if (mime.startsWith('video/')) {
-    payload = { video: buffer, caption: caption || undefined, mimetype: mime };
-  } else if (mime.startsWith('audio/')) {
-    const isOgg = mime.includes('ogg');
-    payload = {
-      audio: buffer,
-      mimetype: isOgg ? 'audio/ogg; codecs=opus' : mime,
-      ptt: isOgg,
-    };
-  } else {
-    payload = {
-      document: buffer,
+  try {
+    payload = buildMediaPayload(mediaType, buffer, {
       mimetype: mime,
-      fileName: filename,
-      caption: caption || undefined,
-    };
+      caption,
+      filename,
+    });
+  } catch (err) {
+    return res.status(422).json({ ok: false, error: err.message });
   }
 
   try {
