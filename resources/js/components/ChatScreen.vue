@@ -157,10 +157,10 @@
                 class="wa-msg__reactions"
               >
                 <span
-                  v-for="(count, emoji) in reactions[m.whatsapp_message_id]"
+                  v-for="(count, emoji) in reactionCounts(reactions[m.whatsapp_message_id])"
                   :key="emoji"
                   class="wa-reaction"
-                >{{ emoji }} {{ count > 1 ? count : '' }}</span>
+                >{{ emoji }}{{ count > 1 ? ' ' + count : '' }}</span>
               </div>
             </div>
           </div>
@@ -408,18 +408,14 @@ export default {
           const { messageId, emoji, reactorJid } = data.payload ?? {};
           if (!messageId) return;
 
-          const current = { ...(this.reactions[messageId] ?? {}) };
-
+          // { [reactorJid]: emoji } — cada pessoa só tem 1 reação por mensagem
+          const byReactor = { ...(this.reactions[messageId] ?? {}) };
           if (!emoji) {
-            Object.keys(current).forEach(e => {
-              if (current[e] > 0) current[e]--;
-              if (current[e] <= 0) delete current[e];
-            });
+            delete byReactor[reactorJid];
           } else {
-            current[emoji] = (current[emoji] ?? 0) + 1;
+            byReactor[reactorJid] = emoji;
           }
-
-          this.reactions = { ...this.reactions, [messageId]: current };
+          this.reactions = { ...this.reactions, [messageId]: byReactor };
         })
         .listen('.InstanceUpdated', (data) => {
           // Status do WhatsApp mudou (ex: desconectou)
@@ -654,6 +650,12 @@ export default {
       );
     },
 
+    reactionCounts(byReactor) {
+      // { jid: emoji } → { emoji: count }
+      const counts = {};
+      Object.values(byReactor).forEach(e => { counts[e] = (counts[e] ?? 0) + 1; });
+      return counts;
+    },
     formatPhone(phone) {
       if (!phone) return '';
       const digits = String(phone).replace(/\D/g, '');
