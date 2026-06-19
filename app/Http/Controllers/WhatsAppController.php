@@ -203,7 +203,9 @@ class WhatsAppController extends Controller
             'message' => 'required|string',
         ]);
 
-        return $this->proxyPost('/instances/' . $instance->slug . '/send-message', $data);
+        $result = $this->_doSendMessage($instance, $data);
+
+        return response()->json($result['data'], $result['ok'] ? 200 : 502);
     }
 
     public function sendMedia(Request $request, Instance $instance): JsonResponse
@@ -215,29 +217,180 @@ class WhatsAppController extends Controller
             'file'    => 'required|file|max:25600',
         ]);
 
-        $file = $request->file('file');
+        $file     = $request->file('file');
+        $contents = file_get_contents($file->getRealPath());
+        $result   = $this->_doSendMedia($instance, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
 
+        return response()->json($result['data'], $result['ok'] ? 200 : 502);
+    }
+
+    public function sendMessageFallback(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'message' => 'required|string',
+        ]);
+
+        $instances = Instance::where('status', 'CONNECTED')
+            ->orderBy('updated_at', 'desc')
+            ->get();
+
+        if ($instances->isEmpty()) {
+            return response()->json([
+                'ok'       => false,
+                'error'    => 'Nenhuma instância disponível conseguiu enviar a mensagem',
+                'attempts' => [],
+            ], 502);
+        }
+
+        $attempts = [];
+
+        foreach ($instances as $instance) {
+            $result = $this->_doSendMessage($instance, $data);
+
+            if ($result['ok']) {
+                return response()->json([
+                    'ok'       => true,
+                    'instance' => $instance->slug,
+                    'result'   => $result['data'],
+                ]);
+            }
+
+            $attempts[] = [
+                'instance' => $instance->slug,
+                'error'    => $result['error'],
+            ];
+        }
+
+        return response()->json([
+            'ok'       => false,
+            'error'    => 'Nenhuma instância disponível conseguiu enviar a mensagem',
+            'attempts' => $attempts,
+        ], 502);
+    }
+
+    public function sendMediaFallback(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'caption' => 'nullable|string|max:1024',
+            'file'    => 'required|file|max:25600',
+        ]);
+
+        $file     = $request->file('file');
+        $contents = file_get_contents($file->getRealPath());
+        $name     = $file->getClientOriginalName();
+        $mime     = $file->getMimeType() ?: 'application/octet-stream';
+
+        $instances = Instance::where('status', 'CONNECTED')
+            ->orderBy('updated_at', 'desc')
+            ->get();
+
+        if ($instances->isEmpty()) {
+            return response()->json([
+                'ok'       => false,
+                'error'    => 'Nenhuma instância disponível conseguiu enviar a mensagem',
+                'attempts' => [],
+            ], 502);
+        }
+
+        $attempts = [];
+
+        foreach ($instances as $instance) {
+            $result = $this->_doSendMedia($instance, $contents, $name, $mime, $data);
+
+            if ($result['ok']) {
+                return response()->json([
+                    'ok'       => true,
+                    'instance' => $instance->slug,
+                    'result'   => $result['data'],
+                ]);
+            }
+
+            $attempts[] = [
+                'instance' => $instance->slug,
+                'error'    => $result['error'],
+            ];
+        }
+
+        return response()->json([
+            'ok'       => false,
+            'error'    => 'Nenhuma instância disponível conseguiu enviar a mensagem',
+            'attempts' => $attempts,
+        ], 502);
+    }
+
+    /**
+     * @return array{ok: bool, data: array, error: string|null}
+     */
+    private function _doSendMessage(Instance $instance, array $params): array
+    {
+        try {
+            $response = Http::timeout(self::HTTP_TIMEOUT)
+                ->acceptJson()
+                ->post($this->nodeBaseUrl() . '/instances/' . $instance->slug . '/send-message', $params);
+
+            if ($response->successful()) {
+                return ['ok' => true, 'data' => $response->json() ?? [], 'error' => null];
+            }
+
+            $errorBody = $response->json() ?? [];
+            $errorMsg  = $errorBody['error'] ?? ('HTTP ' . $response->status());
+
+            Log::warning('whatsapp-service recusou send-message', [
+                'slug'   => $instance->slug,
+                'status' => $response->status(),
+                'body'   => $errorBody,
+            ]);
+
+            return ['ok' => false, 'data' => $errorBody, 'error' => $errorMsg];
+        } catch (\Throwable $e) {
+            Log::error('Falha ao enviar mensagem pro whatsapp-service', [
+                'slug'  => $instance->slug,
+                'error' => $e->getMessage(),
+            ]);
+
+            return ['ok' => false, 'data' => [], 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * @return array{ok: bool, data: array, error: string|null}
+     */
+    private function _doSendMedia(Instance $instance, string $contents, string $filename, string $mime, array $params): array
+    {
         try {
             $response = Http::timeout(self::HTTP_MEDIA_TIMEOUT)
-                ->attach(
-                    'file',
-                    file_get_contents($file->getRealPath()),
-                    $file->getClientOriginalName(),
-                    ['Content-Type' => $file->getMimeType() ?: 'application/octet-stream'],
-                )
+                ->attach('file', $contents, $filename, ['Content-Type' => $mime])
                 ->post($this->nodeBaseUrl() . '/instances/' . $instance->slug . '/send-media', array_filter([
-                    'jid'     => $data['jid']     ?? null,
-                    'number'  => $data['number']  ?? null,
-                    'caption' => $data['caption'] ?? null,
+                    'jid'     => $params['jid']     ?? null,
+                    'number'  => $params['number']  ?? null,
+                    'caption' => $params['caption'] ?? null,
                 ]));
 
-            return response()->json($response->json(), $response->status());
+            if ($response->successful()) {
+                return ['ok' => true, 'data' => $response->json() ?? [], 'error' => null];
+            }
+
+            $errorBody = $response->json() ?? [];
+            $errorMsg  = $errorBody['error'] ?? ('HTTP ' . $response->status());
+
+            Log::warning('whatsapp-service recusou send-media', [
+                'slug'   => $instance->slug,
+                'status' => $response->status(),
+                'body'   => $errorBody,
+            ]);
+
+            return ['ok' => false, 'data' => $errorBody, 'error' => $errorMsg];
         } catch (\Throwable $e) {
             Log::error('Falha ao enviar mídia pro whatsapp-service', [
                 'slug'  => $instance->slug,
                 'error' => $e->getMessage(),
             ]);
-            return response()->json(['ok' => false, 'error' => 'whatsapp-service indisponível'], 502);
+
+            return ['ok' => false, 'data' => [], 'error' => $e->getMessage()];
         }
     }
 
