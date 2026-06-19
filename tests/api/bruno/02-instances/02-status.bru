@@ -1,0 +1,24 @@
+meta {
+  name: 02 - GET /instances/{slug}/status
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/status
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+tests {
+  test("status 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("response.status existe", function () {
+    expect(res.getBody().status).to.be.a("string");
+  });
+}

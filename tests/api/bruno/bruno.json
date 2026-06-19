@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "wp-gorila",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

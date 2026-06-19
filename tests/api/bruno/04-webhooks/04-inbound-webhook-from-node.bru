@@ -1,0 +1,32 @@
+meta {
+  name: 04 - POST /webhook (rota pública chamada pelo Node)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/whatsapp/webhook
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+body:json {
+  {
+    "instance_id": "{{slug}}",
+    "event": "connection",
+    "status": "CONNECTED"
+  }
+}
+
+tests {
+  test("status 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("ok=true", function () {
+    expect(res.getBody().ok).to.equal(true);
+  });
+}

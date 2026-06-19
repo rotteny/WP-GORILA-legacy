@@ -1,0 +1,21 @@
+meta {
+  name: 04 - DELETE /instances/{slug}
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/api/whatsapp/instances/bruno-temp
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+tests {
+  test("status 2xx", function () {
+    expect(res.getStatus()).to.be.within(200, 299);
+  });
+}
