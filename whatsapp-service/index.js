@@ -306,6 +306,24 @@ async function startBaileys(slug) {
       timestamp: new Date().toISOString(),
     });
   });
+
+  instance.sock.ev.on('messages.reaction', (reactions) => {
+    for (const r of reactions) {
+      notifyLaravel(instance, {
+        event: 'message_reaction',
+        status: instance.status,
+        payload: {
+          messageId:  r.key?.id,
+          remoteJid:  r.key?.remoteJid,
+          emoji:      r.reaction?.text ?? '',
+          fromMe:     r.key?.fromMe ?? false,
+          reactorJid: r.reaction?.key?.participant ?? r.key?.remoteJid,
+          ts:         r.reaction?.senderTimestampMs,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
 }
 
 // =============================================================================

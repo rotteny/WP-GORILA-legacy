@@ -141,6 +141,16 @@
               >{{ m.body }}</div>
 
               <div class="wa-msg__time">{{ formatTime(m.received_at) }}</div>
+              <div
+                v-if="reactions[m.whatsapp_message_id] && Object.keys(reactions[m.whatsapp_message_id]).length"
+                class="wa-msg__reactions"
+              >
+                <span
+                  v-for="(count, emoji) in reactions[m.whatsapp_message_id]"
+                  :key="emoji"
+                  class="wa-reaction"
+                >{{ emoji }} {{ count > 1 ? count : '' }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -230,6 +240,7 @@ export default {
       audioBlocked: true,
       audioCtx: null,
       audioBuffer: null,
+      reactions: {},  // { [messageId]: { [emoji]: count } }
     };
   },
 
@@ -376,6 +387,23 @@ export default {
 
           // Atualiza lista de chats (preview pode ter mudado)
           this.fetchChats();
+        })
+        .listen('.MessageReaction', (data) => {
+          const { messageId, emoji, reactorJid } = data.payload ?? {};
+          if (!messageId) return;
+
+          const current = { ...(this.reactions[messageId] ?? {}) };
+
+          if (!emoji) {
+            Object.keys(current).forEach(e => {
+              if (current[e] > 0) current[e]--;
+              if (current[e] <= 0) delete current[e];
+            });
+          } else {
+            current[emoji] = (current[emoji] ?? 0) + 1;
+          }
+
+          this.reactions = { ...this.reactions, [messageId]: current };
         })
         .listen('.InstanceUpdated', (data) => {
           // Status do WhatsApp mudou (ex: desconectou)
@@ -968,4 +996,19 @@ export default {
   title: "Ativar notificações sonoras";
 }
 .wa-audio-btn:hover { opacity: 1; background: rgba(0,0,0,.06); }
+
+.wa-msg__reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.wa-reaction {
+  background: rgba(0,0,0,.06);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: .8rem;
+  cursor: default;
+  user-select: none;
+}
 </style>

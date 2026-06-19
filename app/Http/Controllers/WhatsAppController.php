@@ -53,6 +53,17 @@ class WhatsAppController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        if ($data['event'] === 'message_reaction') {
+            $instance = Instance::firstWhere('slug', $data['instance_id']);
+            if ($instance) {
+                broadcast(new \App\Events\MessageReaction(
+                    $data['instance_id'],
+                    $data['payload'] ?? []
+                ));
+            }
+            return response()->json(['ok' => true]);
+        }
+
         // O Laravel é a fonte autoritativa do `name` (legível pra UI).
         // Só seta o name na CRIAÇÃO; em updates, deixa o existente intacto.
         $attributes = [
