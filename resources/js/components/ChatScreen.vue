@@ -225,7 +225,7 @@ export default {
       echoChannel: null,
       pendingFile: null,        // File API: arquivo escolhido pra enviar
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
-      unreadCounts: JSON.parse(localStorage.getItem(`wp_unread_${document.getElementById('wa-chat-app')?.dataset.instanceSlug}`) || '{}'),
+      unreadCounts: {},
       flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
       audioBlocked: true,
       audioCtx: null,
@@ -272,15 +272,6 @@ export default {
     },
   },
 
-  watch: {
-    unreadCounts: {
-      deep: true,
-      handler(val) {
-        localStorage.setItem(`wp_unread_${this.instanceSlug}`, JSON.stringify(val));
-      },
-    },
-  },
-
   mounted() {
     this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
@@ -306,12 +297,9 @@ export default {
 
   methods: {
     requestAudio() {
-      // AudioContext.resume() é o gesto oficial que desbloqueia o contexto
-      // de áudio no browser — persiste durante toda a sessão após um clique.
       this.audioCtx.resume().then(() => {
-        localStorage.setItem('wp_audio_unlocked', '1');
         this.audioBlocked = false;
-        this._playAlarm(); // toca como confirmação
+        this._playAlarm();
       });
     },
 
