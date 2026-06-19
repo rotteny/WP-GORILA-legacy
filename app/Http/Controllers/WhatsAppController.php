@@ -245,11 +245,12 @@ class WhatsAppController extends Controller
             ->get();
 
         if ($instances->isEmpty()) {
+            $all = Instance::orderBy('updated_at', 'desc')->get(['slug', 'name', 'status']);
             return response()->json([
-                'ok'       => false,
-                'error'    => 'Nenhuma instância disponível conseguiu enviar a mensagem',
-                'attempts' => [],
-            ], 502);
+                'ok'        => false,
+                'error'     => 'Nenhuma instância conectada',
+                'instances' => $all,
+            ], 409);
         }
 
         $attempts = [];
@@ -297,11 +298,12 @@ class WhatsAppController extends Controller
             ->get();
 
         if ($instances->isEmpty()) {
+            $all = Instance::orderBy('updated_at', 'desc')->get(['slug', 'name', 'status']);
             return response()->json([
-                'ok'       => false,
-                'error'    => 'Nenhuma instância disponível conseguiu enviar a mensagem',
-                'attempts' => [],
-            ], 502);
+                'ok'        => false,
+                'error'     => 'Nenhuma instância conectada',
+                'instances' => $all,
+            ], 409);
         }
 
         $attempts = [];
