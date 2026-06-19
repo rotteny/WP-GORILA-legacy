@@ -1,5 +1,9 @@
 <template>
   <div class="wa-wrap">
+    <!-- Banner de permissão de áudio -->
+    <div v-if="audioBlocked" class="wa-audio-banner" @click="requestAudio">
+      🔔 Clique aqui para ativar o som de notificações
+    </div>
     <!-- COLUNA ESQUERDA: lista de conversas -->
     <aside class="wa-side">
       <header class="wa-side__header">
@@ -224,6 +228,7 @@ export default {
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
       unreadCounts: {},         // { [jid]: number } — badges de não lidos
       flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
+      audioBlocked: false,      // true enquanto o browser não permitiu áudio
     };
   },
 
@@ -270,19 +275,21 @@ export default {
     this.refreshAll();
     this.connectEcho();
     this.pollHandle = setInterval(this.fetchChats, 30_000);
-    // Browsers bloqueiam audio.play() sem interação prévia do usuário.
-    // Primeiro clique em qualquer lugar destrava o contexto de áudio.
-    document.addEventListener('click', this._unlockAudio, { once: true });
+    // Testa permissão de áudio ao montar; exibe banner se bloqueado.
+    new Audio('/sounds/alarme.mp3').play()
+      .then(a => { a?.pause?.(); this.audioBlocked = false; })
+      .catch(() => { this.audioBlocked = true; });
   },
 
-  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); document.removeEventListener('click', this._unlockAudio); },
-  beforeDestroy()  { this.disconnectEcho(); this.stopPolling(); this.clearFile(); document.removeEventListener('click', this._unlockAudio); },
+  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
+  beforeDestroy()  { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
 
   methods: {
-    _unlockAudio() {
+    requestAudio() {
       const a = new Audio('/sounds/alarme.mp3');
-      a.volume = 0;
-      a.play().then(() => a.pause()).catch(() => {});
+      a.play()
+        .then(() => { this.audioBlocked = false; })
+        .catch(() => { this.audioBlocked = true; });
     },
 
     stopPolling() {
@@ -298,39 +305,41 @@ export default {
         return;
       }
       this.echoChannel = window.Echo.channel(`instance.${this.instanceSlug}`)
-        .listen('.MessageReceived', (data) => {
+        .listen('.MessageReceived', async (data) => {
           const payload = data.payload;
           if (!payload) return;
 
-          // Atualiza a lista de chats (novo contato pode aparecer)
-          this.fetchChats();
-
           new Audio('/sounds/alarme.mp3').play().catch(() => {});
 
-          // Se a conversa ativa for o remetente/destinatário, recarrega do banco
-          // (payload do WS é formato Baileys bruto; template espera estrutura do DB)
-          const jid = payload.key?.remoteJid;
+          // Captura timestamps antes de recarregar para detectar qual chat mudou
+          const prevTimestamps = Object.fromEntries(
+            this.chats.map(c => [c.jid, c.last_message?.received_at])
+          );
 
-          if (jid) {
-            // Badge: incrementa apenas se o jid NÃO for o chat atualmente aberto
-            if (jid !== this.activeJid) {
+          await this.fetchChats();
+
+          // Flashar e incrementar badge nos chats que receberam mensagem nova
+          this.chats.forEach(c => {
+            if (c.last_message?.received_at === prevTimestamps[c.jid]) return;
+
+            if (c.jid !== this.activeJid) {
               this.unreadCounts = {
                 ...this.unreadCounts,
-                [jid]: (this.unreadCounts[jid] || 0) + 1,
+                [c.jid]: (this.unreadCounts[c.jid] || 0) + 1,
               };
             }
 
-            // Flash: adiciona ao set reativo, remove após 2s
-            this.flashingJids = { ...this.flashingJids, [jid]: true };
+            this.flashingJids = { ...this.flashingJids, [c.jid]: true };
             setTimeout(() => {
               const copy = { ...this.flashingJids };
-              delete copy[jid];
+              delete copy[c.jid];
               this.flashingJids = copy;
             }, 2000);
+          });
 
-            if (jid === this.activeJid) {
-              this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
-            }
+          // Recarrega mensagens se a conversa ativa estiver aberta
+          if (this.activeJid) {
+            this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
           }
         })
         .listen('.InstanceUpdated', (data) => {
@@ -893,14 +902,31 @@ export default {
   margin-left: auto;
 }
 
-/* Animação ao receber mensagem: fade verde entrando e saindo */
+/* Fade verde no fundo do contato ao receber mensagem */
 @keyframes msg-flash {
-  0%   { background-color: transparent; box-shadow: none; }
-  15%  { background-color: #bbf7d0; box-shadow: inset 3px 0 0 #22c55e; }
-  85%  { background-color: #dcfce7; box-shadow: inset 3px 0 0 #86efac; }
-  100% { background-color: transparent; box-shadow: none; }
+  0%   { background-color: transparent; }
+  20%  { background-color: #bbf7d0; }
+  80%  { background-color: #dcfce7; }
+  100% { background-color: transparent; }
 }
 .wa-chat-item--flash {
-  animation: msg-flash 2s ease-in-out;
+  animation: msg-flash 2s ease-in-out forwards;
 }
+
+.wa-audio-banner {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #fff;
+  padding: .6rem 1.2rem;
+  border-radius: 999px;
+  font-size: .85rem;
+  cursor: pointer;
+  z-index: 999;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  white-space: nowrap;
+}
+.wa-audio-banner:hover { background: #334155; }
 </style>
