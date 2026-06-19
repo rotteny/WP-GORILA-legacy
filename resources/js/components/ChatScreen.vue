@@ -292,15 +292,11 @@ export default {
 
           new Audio('/sounds/alarme.mp3').play().catch(() => {});
 
-          // Se a conversa ativa for o remetente/destinatário, adiciona a mensagem
+          // Se a conversa ativa for o remetente/destinatário, recarrega do banco
+          // (payload do WS é formato Baileys bruto; template espera estrutura do DB)
           const jid = payload.key?.remoteJid;
           if (jid && jid === this.activeJid) {
-            // Verifica se a mensagem já existe (evita duplicata)
-            const exists = this.messages.some(m => m.whatsapp_message_id === payload.key?.id);
-            if (!exists) {
-              this.messages = [...this.messages, payload];
-              this.$nextTick(() => this.scrollToBottom());
-            }
+            this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
           }
         })
         .listen('.InstanceUpdated', (data) => {

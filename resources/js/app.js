@@ -13,8 +13,8 @@ axios.defaults.withCredentials = true;
 
 window.Pusher = Pusher;
 
-// O WebSocket passa pelo proxy nginx (mesmo host/porta da página).
-// Não usar localhost:8080 direto — o browser bloqueia WS em página HTTPS.
+// WebSocket via proxy nginx (mesmo host da página, porta 443/80).
+// cluster é obrigatório no pusher-js mesmo com wsHost customizado.
 const _isTLS = window.location.protocol === 'https:';
 window.Echo = new Echo({
     broadcaster: 'reverb',
@@ -23,8 +23,9 @@ window.Echo = new Echo({
     wsPort: 80,
     wssPort: 443,
     forceTLS: _isTLS,
-    enabledTransports: _isTLS ? ['wss'] : ['ws'],
+    enabledTransports: ['ws', 'wss'],
     disableStats: true,
+    cluster: 'mt1',
 });
 
 // Roteamento mínimo: o ID do mount escolhe qual componente carregar.
