@@ -23,7 +23,10 @@
           v-for="c in chats"
           :key="c.jid"
           class="wa-chat-item"
-          :class="{ 'wa-chat-item--active': c.jid === activeJid }"
+          :class="{
+            'wa-chat-item--active': c.jid === activeJid,
+            'wa-chat-item--flash': flashingJids[c.jid],
+          }"
           @click="openChat(c.jid)"
         >
           <div class="wa-avatar" :style="avatarStyle(c.jid)">
@@ -35,6 +38,7 @@
               <span class="wa-chat-item__badge" :class="'wa-badge--' + c.chat_type">
                 {{ chatTypeLabel(c.chat_type) }}
               </span>
+              <span v-if="unreadCounts[c.jid]" class="wa-badge">{{ unreadCounts[c.jid] }}</span>
             </div>
             <div class="wa-chat-item__preview">
               {{ messagePreview(c.last_message) }}
@@ -218,6 +222,8 @@ export default {
       echoChannel: null,
       pendingFile: null,        // File API: arquivo escolhido pra enviar
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
+      unreadCounts: {},         // { [jid]: number } — badges de não lidos
+      flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
     };
   },
 
@@ -295,8 +301,27 @@ export default {
           // Se a conversa ativa for o remetente/destinatário, recarrega do banco
           // (payload do WS é formato Baileys bruto; template espera estrutura do DB)
           const jid = payload.key?.remoteJid;
-          if (jid && jid === this.activeJid) {
-            this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
+
+          if (jid) {
+            // Badge: incrementa apenas se o jid NÃO for o chat atualmente aberto
+            if (jid !== this.activeJid) {
+              this.unreadCounts = {
+                ...this.unreadCounts,
+                [jid]: (this.unreadCounts[jid] || 0) + 1,
+              };
+            }
+
+            // Flash: adiciona ao set reativo, remove após 2s
+            this.flashingJids = { ...this.flashingJids, [jid]: true };
+            setTimeout(() => {
+              const copy = { ...this.flashingJids };
+              delete copy[jid];
+              this.flashingJids = copy;
+            }, 2000);
+
+            if (jid === this.activeJid) {
+              this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
+            }
           }
         })
         .listen('.InstanceUpdated', (data) => {
@@ -357,6 +382,10 @@ export default {
     openChat(jid) {
       this.activeJid = jid;
       this.messages = [];
+      // Zera o badge de não lidos ao abrir a conversa
+      if (this.unreadCounts[jid]) {
+        this.unreadCounts = { ...this.unreadCounts, [jid]: 0 };
+      }
       this.fetchMessages(jid);
     },
 
@@ -836,5 +865,32 @@ export default {
   color: #856404;
   font-size: 12px;
   text-align: center;
+}
+
+/* Badge de mensagens não lidas */
+.wa-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: auto;
+}
+
+/* Animação de pulse ao receber mensagem */
+@keyframes pulse-bg {
+  0%   { background-color: #dcfce7; }
+  50%  { background-color: #bbf7d0; }
+  100% { background-color: transparent; }
+}
+.wa-chat-item--flash {
+  animation: pulse-bg 2s ease-out;
 }
 </style>
