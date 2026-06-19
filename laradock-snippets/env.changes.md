@@ -8,8 +8,8 @@ quiser entender o que o script faz, ou aplicar manualmente).
 | Chave | Valor |
 |---|---|
 | `APP_CODE_PATH_HOST` | `../laravel` |
-| `DATA_PATH_HOST` | `~/.laradock/data/whatsapp_piloto` |
-| `COMPOSE_PROJECT_NAME` | `whatsapp_piloto` |
+| `DATA_PATH_HOST` | `~/.laradock/data/wp_gorila` |
+| `COMPOSE_PROJECT_NAME` | `wp_gorila` |
 | `PHP_VERSION` | `8.3` |
 
 ## Portas — evitam conflito com outros Laradocks na máquina
@@ -30,12 +30,24 @@ quiser entender o que o script faz, ou aplicar manualmente).
 
 ## Postgres
 
+O banco **não** sobe no Laradock próprio do wp-gorila. Usa o `laradock-postgres-1`
+do Laradock principal (já rodando na porta `5432` do host).
+
+O banco `wp_gorila` precisa existir no postgres principal antes do `migrate`.
+Criação manual (uma vez só):
+```sql
+CREATE DATABASE wp_gorila OWNER default;
+```
+
+As chaves abaixo são apenas referência — o postgres do wp-gorila não é iniciado.
+
 | Chave | Valor |
 |---|---|
 | `POSTGRES_VERSION` | `16-alpine` |
-| `POSTGRES_DB` | `whatsapp_piloto` |
-| `POSTGRES_USER` | `whatsapp` |
+| `POSTGRES_DB` | `wp_gorila` |
+| `POSTGRES_USER` | `default` |
 | `POSTGRES_PASSWORD` | `secret` |
+| `POSTGRES_PORT` | `5433` (não usado) |
 
 ## Variáveis do `.env` do Laravel (`laravel/.env`)
 
@@ -44,10 +56,10 @@ APP_NAME="WhatsApp Piloto Gorila"
 APP_URL=http://localhost:8088
 
 DB_CONNECTION=pgsql
-DB_HOST=postgres
-DB_PORT=5432            # interno da rede docker — não muda
-DB_DATABASE=whatsapp_piloto
-DB_USERNAME=whatsapp
+DB_HOST=host.docker.internal   # Laradock principal, acessado via host
+DB_PORT=5432
+DB_DATABASE=wp_gorila
+DB_USERNAME=default
 DB_PASSWORD=secret
 
 WHATSAPP_SERVICE_URL=http://whatsapp-service:3000

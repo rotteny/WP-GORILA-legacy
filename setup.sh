@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup.sh — provisiona o ambiente Laradock para o WhatsApp Piloto da Gorila.
+# setup.sh — provisiona o ambiente Laradock para o wp-gorila.
 #
 # O QUE FAZ:
 #   1. Clona o Laradock (se ainda não existir)
 #   2. Aplica nossas modificações no laradock/.env (portas + postgres + paths)
 #   3. Anexa o serviço whatsapp-service no laradock/docker-compose.yml
-#   4. Cria a pasta auth_info_baileys (vazia) para o bind mount
+#   4. Cria a pasta auth_info (vazia) para o bind mount do Baileys
+#   5. Cria o nginx site no Laradock (app.conf)
+#   6. Cria laravel/.env a partir do .env.example (se ainda não existir)
 #
 # DEPOIS DELE, ROTEIRO MANUAL (ver README.md):
 #   - docker compose up -d nginx postgres whatsapp-service
-#   - composer create-project laravel/laravel . (dentro do workspace)
-#   - aplicar nossos arquivos por cima (instruções no README)
+#   - docker compose exec --user=laradock workspace bash
+#     composer install && php artisan key:generate && php artisan migrate
+#     npm install && npm run build
 # =============================================================================
 
 set -euo pipefail
@@ -19,6 +22,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LARADOCK_DIR="$ROOT/laradock"
 SNIPPET="$ROOT/laradock-snippets/docker-compose.snippet.yml"
+NGINX_SITE_SRC="$ROOT/laradock-snippets/nginx-app.conf"
+NGINX_SITE_DST="$LARADOCK_DIR/nginx/sites/app.conf"
 
 cyan()  { printf "\033[36m%s\033[0m\n" "$*"; }
 green() { printf "\033[32m%s\033[0m\n" "$*"; }
@@ -28,9 +33,9 @@ yellow(){ printf "\033[33m%s\033[0m\n" "$*"; }
 # 1. Clonar o Laradock
 # -----------------------------------------------------------------------------
 if [ -d "$LARADOCK_DIR/.git" ]; then
-  yellow "[1/4] Laradock já clonado em $LARADOCK_DIR — pulando."
+  yellow "[1/6] Laradock já clonado em $LARADOCK_DIR — pulando."
 else
-  cyan "[1/4] Clonando Laradock em $LARADOCK_DIR..."
+  cyan "[1/6] Clonando Laradock em $LARADOCK_DIR..."
   git clone https://github.com/laradock/laradock.git "$LARADOCK_DIR"
 fi
 
@@ -50,7 +55,7 @@ if [ ! -f "$ENV_FILE" ]; then
   fi
 fi
 
-cyan "[2/4] Ajustando $ENV_FILE..."
+cyan "[2/6] Ajustando $ENV_FILE..."
 
 # Substitui de forma idempotente: se a chave existe, troca o valor;
 # se não existe, anexa no final.
@@ -64,8 +69,8 @@ patch_env() {
 }
 
 patch_env APP_CODE_PATH_HOST                 "../laravel"
-patch_env DATA_PATH_HOST                     "~/.laradock/data/whatsapp_piloto"
-patch_env COMPOSE_PROJECT_NAME               "whatsapp_piloto"
+patch_env DATA_PATH_HOST                     "~/.laradock/data/wp_gorila"
+patch_env COMPOSE_PROJECT_NAME               "wp_gorila"
 patch_env PHP_VERSION                        "8.3"
 patch_env NGINX_HOST_HTTP_PORT               "8088"
 patch_env NGINX_HOST_HTTPS_PORT              "8448"
@@ -78,8 +83,8 @@ patch_env WORKSPACE_VUE_CLI_UI_HOST_PORT     "8011"
 patch_env WORKSPACE_ANGULAR_CLI_SERVE_HOST_PORT "4210"
 patch_env WORKSPACE_VITE_PORT                "5183"
 patch_env POSTGRES_VERSION                   "16-alpine"
-patch_env POSTGRES_DB                        "whatsapp_piloto"
-patch_env POSTGRES_USER                      "whatsapp"
+patch_env POSTGRES_DB                        "wp_gorila"
+patch_env POSTGRES_USER                      "default"
 patch_env POSTGRES_PASSWORD                  "secret"
 patch_env POSTGRES_PORT                      "5433"
 
@@ -91,7 +96,7 @@ green "    .env ajustado."
 COMPOSE_FILE="$LARADOCK_DIR/docker-compose.yml"
 MARKER="### WhatsApp Service (Baileys)"
 
-cyan "[3/4] Anexando whatsapp-service em $COMPOSE_FILE..."
+cyan "[3/6] Anexando whatsapp-service em $COMPOSE_FILE..."
 if grep -q "$MARKER" "$COMPOSE_FILE"; then
   yellow "    Snippet já presente — pulando."
 else
@@ -104,22 +109,52 @@ fi
 # 4. Garantir pasta de sessões do Baileys
 # -----------------------------------------------------------------------------
 mkdir -p "$ROOT/whatsapp-service/auth_info"
-cyan "[4/4] Pasta auth_info pronta (cada projeto vira auth_info/{slug}/)."
+cyan "[4/6] Pasta auth_info pronta (cada projeto vira auth_info/{slug}/)."
+
+# -----------------------------------------------------------------------------
+# 5. Nginx site no Laradock do wp-gorila
+# -----------------------------------------------------------------------------
+cyan "[5/6] Configurando nginx site em $NGINX_SITE_DST..."
+if [ -f "$NGINX_SITE_DST" ]; then
+  yellow "    app.conf já presente — pulando."
+else
+  cp "$NGINX_SITE_SRC" "$NGINX_SITE_DST"
+  green "    app.conf copiado."
+fi
+
+# -----------------------------------------------------------------------------
+# 6. Criar laravel/.env a partir do .env.example
+# -----------------------------------------------------------------------------
+LARAVEL_ENV="$ROOT/laravel/.env"
+LARAVEL_ENV_EXAMPLE="$ROOT/laravel/.env.example"
+
+cyan "[6/6] Verificando laravel/.env..."
+if [ -f "$LARAVEL_ENV" ]; then
+  yellow "    laravel/.env já existe — pulando."
+else
+  if [ -f "$LARAVEL_ENV_EXAMPLE" ]; then
+    cp "$LARAVEL_ENV_EXAMPLE" "$LARAVEL_ENV"
+    green "    laravel/.env criado a partir do .env.example."
+    yellow "    Lembre-se de rodar 'php artisan key:generate' dentro do workspace."
+  else
+    yellow "    AVISO: laravel/.env.example não encontrado — crie o laravel/.env manualmente."
+  fi
+fi
 
 echo
 green "Setup concluído!"
 cat <<EOF
 
-Próximos passos (manual, fora do escopo deste script):
+Próximos passos:
 
   cd laradock
-  docker compose up -d nginx postgres whatsapp-service
+  docker compose up -d nginx whatsapp-service
   docker compose exec --user=laradock workspace bash
   # dentro do workspace:
-  composer install                # ou create-project laravel/laravel .
+  composer install
+  php artisan key:generate
   php artisan migrate
-  npm install
-  npm run build
+  npm install && npm run build
   exit
 
 Acesse: http://localhost:8088
