@@ -1,4 +1,10 @@
 import { createApp } from 'vue';
+import axios from 'axios';
+
+// Configura axios globalmente para enviar CSRF token e cookies de sessão
+axios.defaults.headers.common['X-CSRF-TOKEN'] =
+    document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+axios.defaults.withCredentials = true;
 import WhatsAppConnect from './components/WhatsAppConnect.vue';
 import ChatScreen from './components/ChatScreen.vue';
 import InstancesScreen from './components/InstancesScreen.vue';
