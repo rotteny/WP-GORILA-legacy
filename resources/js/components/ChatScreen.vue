@@ -907,7 +907,7 @@ export default {
 /* Degradê verde passando horizontalmente ao receber mensagem */
 @keyframes msg-sweep {
   0%   { transform: translateX(-100%); }
-  100% { transform: translateX(150%); }
+  100% { transform: translateX(100%); }
 }
 .wa-chat-item--flash::after {
   content: '';
@@ -917,7 +917,7 @@ export default {
   width: 100%;
   height: 100%;
   background: linear-gradient(90deg, transparent 0%, #86efac 40%, #bbf7d0 50%, #86efac 60%, transparent 100%);
-  animation: msg-sweep 0.4s ease-out;
+  animation: msg-sweep 0.4s ease-out forwards;
   pointer-events: none;
 }
 
