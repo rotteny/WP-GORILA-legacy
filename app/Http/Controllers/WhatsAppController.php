@@ -35,6 +35,8 @@ class WhatsAppController extends Controller
                     $data['instance_id'],
                     $data['payload'] ?? []
                 ));
+                app(\App\Services\WebhookForwarderService::class)
+                    ->forward('message', $instance, $data['payload'] ?? []);
             }
             Log::info('Mensagem recebida do WhatsApp', [
                 'instance_id' => $data['instance_id'],
@@ -118,6 +120,8 @@ class WhatsAppController extends Controller
                     $data['instance_id'],
                     $data['payload'] ?? []
                 ));
+                app(\App\Services\WebhookForwarderService::class)
+                    ->forward('message_deleted', $instance, $data['payload'] ?? []);
             }
             return response()->json(['ok' => true]);
         }
@@ -129,6 +133,8 @@ class WhatsAppController extends Controller
                     $data['instance_id'],
                     $data['payload'] ?? []
                 ));
+                app(\App\Services\WebhookForwarderService::class)
+                    ->forward('message_reaction', $instance, $data['payload'] ?? []);
             }
             return response()->json(['ok' => true]);
         }
@@ -149,6 +155,8 @@ class WhatsAppController extends Controller
         $instance->fill($attributes)->save();
 
         broadcast(new InstanceUpdated($instance));
+        app(\App\Services\WebhookForwarderService::class)
+            ->forward('connection', $instance, $data['payload'] ?? []);
 
         return response()->json(['ok' => true, 'instance' => $instance]);
     }

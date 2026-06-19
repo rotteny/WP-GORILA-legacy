@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\InstanceController;
+use App\Http\Controllers\WebhookConfigController;
 use App\Http\Controllers\WhatsAppController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +23,9 @@ Route::prefix('whatsapp')->group(function () {
             Route::get('/chats/{jid}/messages', [WhatsAppController::class, 'chatMessages'])
                 ->where('jid', '.+');
             Route::get('/media/{messageId}', [WhatsAppController::class, 'media']);
+            Route::get('/webhooks', [WebhookConfigController::class, 'index']);
+            Route::put('/webhooks', [WebhookConfigController::class, 'upsert']);
+            Route::delete('/webhooks/{event}', [WebhookConfigController::class, 'destroy']);
         });
     });
 });

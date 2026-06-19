@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Instance extends Model
 {
@@ -22,5 +23,10 @@ class Instance extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    public function webhookConfigs(): HasMany
+    {
+        return $this->hasMany(WebhookConfig::class);
     }
 }

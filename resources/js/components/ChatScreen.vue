@@ -7,6 +7,9 @@
           <a href="/" class="wa-back">← Projetos</a>
           <h2>Conversas</h2>
           <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
+          <button class="wa-tab-btn" :class="{ 'wa-tab-btn--active': showWebhooks }" @click="showWebhooks = !showWebhooks" title="Configurar webhooks">
+            Webhooks
+          </button>
           <button v-if="audioBlocked" class="wa-audio-btn" @click="requestAudio" title="Ativar notificações sonoras">
             🔇
           </button>
@@ -14,7 +17,11 @@
         <div v-if="projectName" class="wa-side__project">{{ projectName }}</div>
       </header>
 
-      <div class="wa-side__list">
+      <div v-if="showWebhooks" class="wa-side__webhooks">
+        <WebhookSettings :instance-slug="instanceSlug" />
+      </div>
+
+      <div v-else class="wa-side__list">
         <div v-if="loadingChats && chats.length === 0" class="wa-empty">
           Carregando...
         </div>
@@ -212,10 +219,14 @@
 
 <script>
 import axios from 'axios';
-
+import WebhookSettings from './WebhookSettings.vue';
 
 export default {
   name: 'ChatScreen',
+
+  components: {
+    WebhookSettings,
+  },
 
   props: {
     instanceSlug: {
@@ -245,6 +256,7 @@ export default {
       audioCtx: null,
       audioBuffer: null,
       reactions: {},  // { [messageId]: { [emoji]: count } }
+      showWebhooks: false,
     };
   },
 
@@ -1032,6 +1044,28 @@ export default {
   title: "Ativar notificações sonoras";
 }
 .wa-audio-btn:hover { opacity: 1; background: rgba(0,0,0,.06); }
+
+.wa-tab-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #d1d7db;
+  border-radius: 12px;
+  background: #fff;
+  color: #54656f;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wa-tab-btn:hover { background: #e9edef; }
+.wa-tab-btn--active {
+  background: #008069;
+  color: #fff;
+  border-color: #008069;
+}
+.wa-side__webhooks {
+  flex: 1;
+  overflow-y: auto;
+  background: #fff;
+}
 
 .wa-msg__reactions {
   display: flex;
