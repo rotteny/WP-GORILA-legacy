@@ -16,6 +16,8 @@
     "dependencies": {
         "@vitejs/plugin-vue": "^6.0.7",
         "axios": "^1.18.0",
+        "laravel-echo": "^2.3.7",
+        "pusher-js": "^8.5.0",
         "qrcode.vue": "^3.10.0",
         "vue": "^3.5.38"
     }

@@ -1,13 +1,28 @@
 import { createApp } from 'vue';
 import axios from 'axios';
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+import WhatsAppConnect from './components/WhatsAppConnect.vue';
+import ChatScreen from './components/ChatScreen.vue';
+import InstancesScreen from './components/InstancesScreen.vue';
 
 // Configura axios globalmente para enviar CSRF token e cookies de sessão
 axios.defaults.headers.common['X-CSRF-TOKEN'] =
     document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
 axios.defaults.withCredentials = true;
-import WhatsAppConnect from './components/WhatsAppConnect.vue';
-import ChatScreen from './components/ChatScreen.vue';
-import InstancesScreen from './components/InstancesScreen.vue';
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: 'reverb',
+    key: import.meta.env.VITE_REVERB_APP_KEY,
+    wsHost: import.meta.env.VITE_REVERB_HOST ?? window.location.hostname,
+    wsPort: import.meta.env.VITE_REVERB_PORT ?? 8080,
+    wssPort: import.meta.env.VITE_REVERB_PORT ?? 8080,
+    forceTLS: false,
+    enabledTransports: ['ws', 'wss'],
+    disableStats: true,
+});
 
 // Roteamento mínimo: o ID do mount escolhe qual componente carregar.
 // #wa-app           → tela de conexão (QR code) de UMA instância

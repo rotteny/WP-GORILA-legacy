@@ -7,6 +7,7 @@
 #   2. Anexa o whatsapp-service no docker-compose.yml do Laradock principal
 #   3. Cria .env a partir do .env.example (se ainda não existir)
 #   4. Garante a pasta auth_info para o Baileys
+#   5. Sobe os containers whatsapp-service e reverb (se não estiverem rodando)
 #
 # PRÉ-REQUISITO:
 #   - Laradock principal em ../../laradock (relativo a este projeto)
@@ -14,8 +15,6 @@
 #       docker exec laradock-postgres-1 psql -U default -c "CREATE DATABASE wp_gorila OWNER default;"
 #
 # DEPOIS DESTE SCRIPT:
-#   cd ../../laradock
-#   docker compose up -d whatsapp-service
 #   docker compose exec --user=laradock workspace bash
 #     cd wp-gorila
 #     composer install
@@ -82,6 +81,24 @@ fi
 mkdir -p "$ROOT/whatsapp-service/auth_info"
 cyan "[4/4] Pasta auth_info pronta."
 
+# -----------------------------------------------------------------------------
+# 5. Subir whatsapp-service e reverb (idempotente)
+# -----------------------------------------------------------------------------
+cyan "[5/5] Verificando containers whatsapp-service e reverb..."
+cd "$LARADOCK_DIR"
+
+WA_RUNNING=$(docker compose ps --services --filter "status=running" 2>/dev/null | grep "^whatsapp-service$" || true)
+REVERB_RUNNING=$(docker compose ps --services --filter "status=running" 2>/dev/null | grep "^reverb$" || true)
+
+if [ -n "$WA_RUNNING" ] && [ -n "$REVERB_RUNNING" ]; then
+  yellow "    whatsapp-service e reverb já estão rodando — pulando."
+else
+  docker compose up -d whatsapp-service reverb
+  green "    Containers iniciados."
+fi
+
+cd "$ROOT"
+
 echo
 green "Setup concluído!"
 cat <<EOF
@@ -89,17 +106,17 @@ cat <<EOF
 Banco de dados (se ainda não criado):
   docker exec laradock-postgres-1 psql -U default -c "CREATE DATABASE wp_gorila OWNER default;"
 
-Subir o whatsapp-service:
-  cd $LARADOCK_DIR
-  docker compose up -d whatsapp-service
-
 Instalar dependências (dentro do workspace do Laradock principal):
-  docker compose exec --user=laradock workspace bash
-  cd wp-gorila
-  composer install
-  php artisan key:generate
-  php artisan migrate
-  npm install && npm run build
+  docker compose exec --user=laradock workspace bash -c "
+    cd wp-gorila
+    composer install
+    php artisan key:generate
+    php artisan migrate
+    npm install && npm run build
+  "
+
+Verificar Reverb (WebSocket server):
+  docker logs wp_gorila_reverb --tail 20
 
 Acesse: https://wp.local
 EOF

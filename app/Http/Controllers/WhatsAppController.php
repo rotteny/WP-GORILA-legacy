@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\InstanceUpdated;
 use App\Models\Instance;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,6 +49,8 @@ class WhatsAppController extends Controller
             $instance->name = $data['instance_id']; // fallback se for criada via webhook
         }
         $instance->fill($attributes)->save();
+
+        broadcast(new InstanceUpdated($instance));
 
         return response()->json(['ok' => true, 'instance' => $instance]);
     }

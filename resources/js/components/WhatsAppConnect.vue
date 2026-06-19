@@ -82,6 +82,7 @@ export default {
       resetting: false,
       pollHandle: null,
       pollIntervalMs: 3000,
+      echoChannel: null,
     };
   },
 
@@ -99,19 +100,51 @@ export default {
 
   mounted() {
     this.fetchStatus();
-    this.startPolling();
+    this.connectEcho();
   },
 
   beforeUnmount() {
+    this.disconnectEcho();
     this.stopPolling();
   },
 
   // Compat Vue 2
   beforeDestroy() {
+    this.disconnectEcho();
     this.stopPolling();
   },
 
   methods: {
+    connectEcho() {
+      if (!window.Echo) {
+        // Fallback: polling se Echo não disponível
+        this.startPolling();
+        return;
+      }
+      this.echoChannel = window.Echo.channel(`instance.${this.instanceSlug}`)
+        .listen('.InstanceUpdated', (data) => {
+          this.status      = data.status;
+          this.qrCode      = data.qr_code || null;
+          this.lastEventAt = data.last_event_at || null;
+          this.projectName = data.name || null;
+          if (this.status === 'CONNECTED') {
+            this.disconnectEcho();
+          }
+        })
+        .error(() => {
+          // Fallback para polling se WS falhar
+          this.startPolling();
+        });
+    },
+
+    disconnectEcho() {
+      if (this.echoChannel) {
+        window.Echo.leaveChannel(`instance.${this.instanceSlug}`);
+        this.echoChannel = null;
+      }
+      this.stopPolling();
+    },
+
     startPolling() {
       if (this.pollHandle) return;
       this.pollHandle = setInterval(this.fetchStatus, this.pollIntervalMs);

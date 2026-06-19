@@ -6,16 +6,20 @@ open-source **Baileys**. Projeto interno, baixa escala, foco em "configurar e es
 ## Arquitetura
 
 ```
-┌──────────────┐  long poll 3-5s ┌─────────────────────┐   webhook   ┌─────────────────────┐
-│   Vue SPA    │ ──────────────▶ │  Laravel (Nginx)    │ ◀────────── │  whatsapp-service   │
-│  (multi-tela)│ ◀── JSON ────── │  https://wp.local   │             │  Node + Baileys     │
-└──────────────┘                 │  Postgres (laradock)│             │  http://:3020       │
-                                 └─────────────────────┘             └─────────────────────┘
-                                          │                                    │
-                                          ▼                                    ▼
-                                  Tabela `instances`              Map<slug, InstanceState>
-                                  (uma linha por projeto)        auth_info/{slug}/ no disco
+┌──────────────┐  WebSocket (Echo)  ┌──────────────────────┐   webhook   ┌─────────────────────┐
+│   Vue SPA    │ ◀───────────────── │  Reverb (ws/:8080)   │ ◀────────── │  whatsapp-service   │
+│  (multi-tela)│ ──── REST API ───▶ │  Laravel (Nginx)     │             │  Node + Baileys     │
+└──────────────┘                    │  https://wp.local    │             │  http://:3020       │
+                                    │  Postgres (laradock) │             └─────────────────────┘
+                                    └──────────────────────┘
+                                             │
+                                             ▼
+                                     Tabela `instances`
+                                     (uma linha por projeto)
+                                     auth_info/{slug}/ no disco
 ```
+
+**Fluxo de tempo real:** o `whatsapp-service` envia evento (QR gerado, status mudou) via webhook → Laravel salva no banco e dispara `broadcast(new InstanceUpdated($instance))` → **Reverb** entrega via WebSocket → Vue atualiza a tela instantaneamente. O polling HTTP é mantido apenas como fallback caso o WebSocket não conecte.
 
 **Multi-sessão:** o sistema gerencia N sessões WhatsApp simultâneas (uma por projeto), cada uma
 identificada por um **slug** (`piloto`, `acca`, etc.). Cada projeto tem sua própria pasta de
@@ -38,7 +42,8 @@ credenciais Baileys (`auth_info/{slug}/`) e seu próprio buffer de conversas.
 | Infra | Docker + Laradock principal (Nginx, PHP-FPM 8.3, Postgres 16) |
 | Micro-serviço | Node 20 + Express + `@whiskeysockets/baileys` |
 | Backend | Laravel 13 + Postgres |
-| Frontend | Vue 3 + Vite + Tailwind |
+| WebSocket | **Laravel Reverb** (container `wp_gorila_reverb`, porta 8080) |
+| Frontend | Vue 3 + Vite + Tailwind + Laravel Echo + pusher-js |
 
 ## Pré-requisitos
 
@@ -122,14 +127,21 @@ O script faz tudo automaticamente:
 3. Cria `.env` a partir do `.env.example` (não sobrescreve se já existir)
 4. Garante a pasta `whatsapp-service/auth_info/`
 
-### 3. Subir o whatsapp-service
+### 3. Subir os serviços Docker
 
 ```bash
 cd ../../laradock
-docker compose up -d whatsapp-service
+docker compose up -d whatsapp-service reverb
 ```
 
-A primeira execução builda a imagem (instala Baileys via npm) — demora 2 a 4 min.
+- `whatsapp-service` — na primeira execução builda a imagem (Baileys via npm), demora 2 a 4 min.
+- `reverb` — container `wp_gorila_reverb`, server WebSocket na porta 8080 interna (proxiado pelo Nginx em `/app`).
+
+Verificar se Reverb subiu:
+```bash
+docker logs wp_gorila_reverb --tail 20
+# Deve exibir: Starting server on 0.0.0.0:8080
+```
 
 ### 4. Instalar dependências e migrar
 
@@ -187,9 +199,10 @@ docker exec -u laradock laradock-workspace-1 bash -c \
 
 | Comando | Quando usar |
 |---|---|
-| `docker compose up -d whatsapp-service` (em `laradock/`) | Subir o serviço Node |
-| `docker compose down whatsapp-service` | Derrubar o serviço Node |
+| `docker compose up -d whatsapp-service reverb` (em `laradock/`) | Subir ambos os serviços |
+| `docker compose down whatsapp-service reverb` | Derrubar ambos |
 | `docker compose logs -f whatsapp-service` | Ver eventos Baileys (QR, conexão, msgs) |
+| `docker logs wp_gorila_reverb -f` | Ver logs do WebSocket server |
 | `docker compose exec --user=laradock workspace bash` | Entrar no workspace Laravel |
 | `docker compose build whatsapp-service` | Rebuild após editar `index.js` |
 | Botão "Gerar novo QR" na UI | Recomeçar pareamento de uma instância |
@@ -278,6 +291,38 @@ Outros pontos:
 
 ---
 
+## WebSocket — Reverb
+
+O Laravel Reverb serve como broker WebSocket. A Vue SPA conecta via **Laravel Echo** e ouve o canal `instance.{slug}` — quando o webhook chega, Laravel dispara `InstanceUpdated` e o Reverb entrega pro browser em tempo real.
+
+### Variáveis de ambiente (`.env`)
+
+```dotenv
+BROADCAST_CONNECTION=reverb
+
+REVERB_APP_ID=your-app-id
+REVERB_APP_KEY=your-app-key
+REVERB_APP_SECRET=your-app-secret
+REVERB_HOST=localhost
+REVERB_PORT=8080
+REVERB_SCHEME=http
+
+VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+VITE_REVERB_HOST="${REVERB_HOST}"
+VITE_REVERB_PORT="${REVERB_PORT}"
+VITE_REVERB_SCHEME="${REVERB_SCHEME}"
+```
+
+Gerar valores únicos para `REVERB_APP_ID/KEY/SECRET` antes de ir para produção.
+
+### Container
+
+O `reverb` está definido no `docker-compose.yml` do Laradock principal como `wp_gorila_reverb`. O snippet está em `laradock-snippets/docker-compose.snippet.yml` e é inserido automaticamente pelo `setup.sh`.
+
+O Nginx proxia `/app` e `/apps` para `reverb:8080` com suporte a WebSocket (`Upgrade`).
+
+---
+
 ## Troubleshooting
 
 **Tela branca em `https://wp.local`** — Vite não buildou. Entre no workspace e rode `npm run build`.
@@ -299,6 +344,15 @@ do workspace.
 
 **`SQLSTATE: could not connect to server`** — o Postgres do Laradock principal não está rodando.
 Verifique com `docker ps | grep postgres`.
+
+**QR Code não atualiza em tempo real** — Reverb pode não estar rodando. Verifique:
+```bash
+docker ps | grep reverb
+docker logs wp_gorila_reverb --tail 30
+```
+Se não estiver rodando: `cd ../../laradock && docker compose up -d reverb`. O Vue faz fallback para polling automático se o WS não conectar.
+
+**WebSocket connection refused no console do browser** — verifique se as `VITE_REVERB_*` no `.env` batem com o container e se `npm run build` foi rodado após alterar o `.env`.
 
 ---
 
