@@ -54,7 +54,22 @@ class WhatsAppController extends Controller
 
     public function getStatus(Instance $instance): JsonResponse
     {
-        return $this->proxyGet('/instances/' . $instance->slug . '/status');
+        try {
+            $response = Http::timeout(self::HTTP_TIMEOUT)->acceptJson()
+                ->get($this->nodeBaseUrl() . '/instances/' . $instance->slug . '/status');
+
+            $data = $response->json() ?? [];
+
+            // Node retorna 'qr'; Vue espera 'qr_code'
+            if (isset($data['qr'])) {
+                $data['qr_code'] = $data['qr'];
+            }
+
+            return response()->json($data, $response->status());
+        } catch (\Throwable $e) {
+            Log::error('Falha ao buscar status', ['slug' => $instance->slug, 'error' => $e->getMessage()]);
+            return response()->json(['ok' => false, 'error' => 'whatsapp-service indisponível'], 502);
+        }
     }
 
     public function reset(Instance $instance): JsonResponse
