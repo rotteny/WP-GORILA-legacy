@@ -197,6 +197,10 @@ class WhatsAppController extends Controller
 
     public function sendMessage(Request $request, Instance $instance): JsonResponse
     {
+        if ($instance->status !== 'CONNECTED') {
+            return response()->json(['ok' => false, 'error' => 'instância não conectada', 'status' => $instance->status], 409);
+        }
+
         $data = $request->validate([
             'number'  => 'required_without:jid|string',
             'jid'     => 'required_without:number|string',
@@ -210,6 +214,10 @@ class WhatsAppController extends Controller
 
     public function sendMedia(Request $request, Instance $instance): JsonResponse
     {
+        if ($instance->status !== 'CONNECTED') {
+            return response()->json(['ok' => false, 'error' => 'instância não conectada', 'status' => $instance->status], 409);
+        }
+
         $data = $request->validate([
             'number'  => 'required_without:jid|string',
             'jid'     => 'required_without:number|string',
