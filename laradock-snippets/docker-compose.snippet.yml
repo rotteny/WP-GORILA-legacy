@@ -1,12 +1,7 @@
-# =====================================================================
-# Snippet que o setup.sh anexa ao final do bloco `services:` do
-# docker-compose.yml do Laradock.
-# =====================================================================
-
-### WhatsApp Service (Baileys) ############################
+### WhatsApp Service - wp-gorila (Baileys) ############################
     whatsapp-service:
       build:
-        context: ../whatsapp-service
+        context: ../workspace/wp-gorila/whatsapp-service
         dockerfile: Dockerfile
       container_name: whatsapp-service
       restart: unless-stopped
@@ -16,10 +11,8 @@
         - LARAVEL_WEBHOOK_URL=http://nginx/api/whatsapp/webhook
         - AUTH_DIR=/usr/src/app/auth_info
       volumes:
-        # Multi-sessão: cada projeto vira uma subpasta em auth_info/{slug}/
-        - ../whatsapp-service/auth_info:/usr/src/app/auth_info
+        - ../workspace/wp-gorila/whatsapp-service/auth_info:/usr/src/app/auth_info
       ports:
-        # Exposto só em localhost pra debug. Laravel acessa via rede docker.
         - "127.0.0.1:3020:3000"
       networks:
         - backend
