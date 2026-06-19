@@ -5,7 +5,7 @@
 # O QUE FAZ:
 #   1. Valida que o Laradock principal existe
 #   2. Anexa o whatsapp-service no docker-compose.yml do Laradock principal
-#   3. Cria laravel/.env a partir do .env.example (se ainda não existir)
+#   3. Cria .env a partir do .env.example (se ainda não existir)
 #   4. Garante a pasta auth_info para o Baileys
 #
 # PRÉ-REQUISITO:
@@ -17,7 +17,7 @@
 #   cd ../../laradock
 #   docker compose up -d whatsapp-service
 #   docker compose exec --user=laradock workspace bash
-#     cd wp-gorila/laravel
+#     cd wp-gorila
 #     composer install
 #     php artisan key:generate
 #     php artisan migrate
@@ -59,20 +59,20 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 3. Criar laravel/.env a partir do .env.example
+# 3. Criar .env a partir do .env.example
 # -----------------------------------------------------------------------------
-LARAVEL_ENV="$ROOT/laravel/.env"
-LARAVEL_ENV_EXAMPLE="$ROOT/laravel/.env.example"
+LARAVEL_ENV="$ROOT/.env"
+LARAVEL_ENV_EXAMPLE="$ROOT/.env.example"
 
-cyan "[3/4] Verificando laravel/.env..."
+cyan "[3/4] Verificando .env..."
 if [ -f "$LARAVEL_ENV" ]; then
-  yellow "    laravel/.env já existe — pulando."
+  yellow "    .env já existe — pulando."
 else
   if [ -f "$LARAVEL_ENV_EXAMPLE" ]; then
     cp "$LARAVEL_ENV_EXAMPLE" "$LARAVEL_ENV"
-    green "    laravel/.env criado. Lembre-se: php artisan key:generate"
+    green "    .env criado. Lembre-se: php artisan key:generate"
   else
-    echo "AVISO: laravel/.env.example não encontrado." >&2
+    echo "AVISO: .env.example não encontrado." >&2
   fi
 fi
 
@@ -95,7 +95,7 @@ Subir o whatsapp-service:
 
 Instalar dependências (dentro do workspace do Laradock principal):
   docker compose exec --user=laradock workspace bash
-  cd wp-gorila/laravel
+  cd wp-gorila
   composer install
   php artisan key:generate
   php artisan migrate
