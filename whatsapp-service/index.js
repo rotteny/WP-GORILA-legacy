@@ -174,6 +174,12 @@ function summarizeMessage(rawMsg) {
     body,
     whatsapp_message_id: rawMsg?.key?.id || null,
     received_at: new Date().toISOString(),
+    sender_name:  rawMsg?.pushName || null,
+    sender_phone: (() => {
+      const jid = rawMsg?.key?.participant || rawMsg?.key?.remoteJid || '';
+      const num = jid.split('@')[0];
+      return /^\d+$/.test(num) ? num : null;
+    })(),
   };
 }
 
@@ -226,6 +232,7 @@ async function startBaileys(slug) {
 
   instance.sock.ev.on('creds.update', saveCreds);
 
+
   instance.sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -274,6 +281,26 @@ async function startBaileys(slug) {
 
     if (Array.isArray(m.messages)) {
       for (const raw of m.messages) {
+
+        // Reações chegam via messages.upsert como reactionMessage
+        const reaction = raw?.message?.reactionMessage;
+        if (reaction) {
+          notifyLaravel(instance, {
+            event: 'message_reaction',
+            status: instance.status,
+            payload: {
+              messageId:  reaction.key?.id,
+              remoteJid:  reaction.key?.remoteJid,
+              emoji:      reaction.text ?? '',
+              fromMe:     reaction.key?.fromMe ?? false,
+              reactorJid: raw.key?.participant ?? raw.key?.remoteJid,
+              ts:         reaction.senderTimestampMs,
+            },
+            timestamp: new Date().toISOString(),
+          });
+          continue;
+        }
+
         if (!isRealMessage(raw)) continue;
 
         const summary = summarizeMessage(raw);
@@ -297,6 +324,18 @@ async function startBaileys(slug) {
       timestamp: new Date().toISOString(),
     });
   });
+
+  instance.sock.ev.on('messages.delete', (item) => {
+    notifyLaravel(instance, {
+      event: 'message_deleted',
+      status: instance.status,
+      payload: item, // { keys: [{ remoteJid, id, fromMe }] }
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // messages.reaction não é emitido em Baileys 6.7.x —
+  // reações chegam via messages.upsert como reactionMessage (tratado acima).
 }
 
 // =============================================================================

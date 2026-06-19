@@ -7,11 +7,21 @@
           <a href="/" class="wa-back">← Projetos</a>
           <h2>Conversas</h2>
           <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
+          <button class="wa-tab-btn" :class="{ 'wa-tab-btn--active': showWebhooks }" @click="showWebhooks = !showWebhooks" title="Configurar webhooks">
+            Webhooks
+          </button>
+          <button v-if="audioBlocked" class="wa-audio-btn" @click="requestAudio" title="Ativar notificações sonoras">
+            🔇
+          </button>
         </div>
         <div v-if="projectName" class="wa-side__project">{{ projectName }}</div>
       </header>
 
-      <div class="wa-side__list">
+      <div v-if="showWebhooks" class="wa-side__webhooks">
+        <WebhookSettings :instance-slug="instanceSlug" />
+      </div>
+
+      <div v-else class="wa-side__list">
         <div v-if="loadingChats && chats.length === 0" class="wa-empty">
           Carregando...
         </div>
@@ -23,7 +33,10 @@
           v-for="c in chats"
           :key="c.jid"
           class="wa-chat-item"
-          :class="{ 'wa-chat-item--active': c.jid === activeJid }"
+          :class="{
+            'wa-chat-item--active': c.jid === activeJid,
+            'wa-chat-item--flash': flashingJids[c.jid],
+          }"
           @click="openChat(c.jid)"
         >
           <div class="wa-avatar" :style="avatarStyle(c.jid)">
@@ -35,6 +48,7 @@
               <span class="wa-chat-item__badge" :class="'wa-badge--' + c.chat_type">
                 {{ chatTypeLabel(c.chat_type) }}
               </span>
+              <span v-if="unreadCounts[c.jid]" class="wa-badge">{{ unreadCounts[c.jid] }}</span>
             </div>
             <div class="wa-chat-item__preview">
               {{ messagePreview(c.last_message) }}
@@ -78,6 +92,10 @@
             :class="m.from_me ? 'wa-msg--out' : 'wa-msg--in'"
           >
             <div class="wa-msg__bubble">
+              <div v-if="!m.from_me && (m.sender_name || m.sender_phone)" class="wa-msg__sender">
+                <span v-if="m.sender_name" class="wa-msg__sender-name">{{ m.sender_name }}</span>
+                <span v-if="m.sender_phone" class="wa-msg__sender-phone">{{ formatPhone(m.sender_phone) }}</span>
+              </div>
               <!-- Imagem -->
               <img
                 v-if="m.type === 'image' || m.type === 'sticker'"
@@ -134,6 +152,16 @@
               >{{ m.body }}</div>
 
               <div class="wa-msg__time">{{ formatTime(m.received_at) }}</div>
+              <div
+                v-if="reactions[m.whatsapp_message_id] && Object.keys(reactions[m.whatsapp_message_id]).length"
+                class="wa-msg__reactions"
+              >
+                <span
+                  v-for="(count, emoji) in reactionCounts(reactions[m.whatsapp_message_id])"
+                  :key="emoji"
+                  class="wa-reaction"
+                >{{ emoji }}{{ count > 1 ? ' ' + count : '' }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -191,11 +219,14 @@
 
 <script>
 import axios from 'axios';
-
-const POLL_MS = 3000;
+import WebhookSettings from './WebhookSettings.vue';
 
 export default {
   name: 'ChatScreen',
+
+  components: {
+    WebhookSettings,
+  },
 
   props: {
     instanceSlug: {
@@ -216,8 +247,16 @@ export default {
       loadingMessages: false,
       sending: false,
       pollHandle: null,
+      echoChannel: null,
       pendingFile: null,        // File API: arquivo escolhido pra enviar
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
+      unreadCounts: {},
+      flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
+      audioBlocked: true,
+      audioCtx: null,
+      audioBuffer: null,
+      reactions: {},  // { [messageId]: { [emoji]: count } }
+      showWebhooks: false,
     };
   },
 
@@ -261,18 +300,137 @@ export default {
   },
 
   mounted() {
+    this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Pré-carrega o buffer uma vez
+    fetch('/sounds/alarme.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => this.audioCtx.decodeAudioData(buf))
+      .then(decoded => { this.audioBuffer = decoded; })
+      .catch(() => {});
+
+    // Tenta resumir imediatamente (funciona se o browser já autorizou na sessão)
+    this.audioCtx.resume().then(() => {
+      if (this.audioCtx.state === 'running') this.audioBlocked = false;
+    });
+
     this.refreshAll();
-    this.pollHandle = setInterval(this.refreshAll, POLL_MS);
+    this.connectEcho();
+    this.pollHandle = setInterval(this.fetchChats, 30_000);
   },
 
-  beforeUnmount() { this.stopPolling(); this.clearFile(); },
-  beforeDestroy() { this.stopPolling(); this.clearFile(); },
+  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
+  beforeDestroy()  { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
 
   methods: {
+    requestAudio() {
+      this.audioCtx.resume().then(() => {
+        this.audioBlocked = false;
+        this._playAlarm();
+      });
+    },
+
+    _playAlarm() {
+      if (!this.audioBuffer || !this.audioCtx) return;
+      if (this.audioCtx.state === 'suspended') { this.audioBlocked = true; return; }
+      const src = this.audioCtx.createBufferSource();
+      src.buffer = this.audioBuffer;
+      src.connect(this.audioCtx.destination);
+      src.start(0);
+    },
+
     stopPolling() {
       if (this.pollHandle) {
         clearInterval(this.pollHandle);
         this.pollHandle = null;
+      }
+    },
+
+    connectEcho() {
+      if (!window.Echo || !this.instanceSlug) {
+        // Fallback: polling normal se Echo não disponível
+        return;
+      }
+      this.echoChannel = window.Echo.channel(`instance.${this.instanceSlug}`)
+        .listen('.MessageReceived', async (data) => {
+          const payload = data.payload;
+          if (!payload) return;
+
+          this._playAlarm();
+
+          // Captura timestamps antes de recarregar para detectar qual chat mudou
+          const prevTimestamps = Object.fromEntries(
+            this.chats.map(c => [c.jid, c.last_message?.received_at])
+          );
+
+          await this.fetchChats();
+
+          // Flashar e incrementar badge nos chats que receberam mensagem nova
+          this.chats.forEach(c => {
+            if (c.last_message?.received_at === prevTimestamps[c.jid]) return;
+
+            if (c.jid !== this.activeJid) {
+              this.unreadCounts = {
+                ...this.unreadCounts,
+                [c.jid]: (this.unreadCounts[c.jid] || 0) + 1,
+              };
+            }
+
+            this.flashingJids = { ...this.flashingJids, [c.jid]: true };
+            setTimeout(() => {
+              const copy = { ...this.flashingJids };
+              delete copy[c.jid];
+              this.flashingJids = copy;
+            }, 2000);
+          });
+
+          // Recarrega mensagens se a conversa ativa estiver aberta
+          if (this.activeJid) {
+            this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
+          }
+        })
+        .listen('.MessageDeleted', (data) => {
+          const keys = data.payload?.keys ?? [];
+          if (!keys.length) return;
+
+          // Remove mensagens apagadas da lista visível
+          const deletedIds = new Set(keys.map(k => k.id).filter(Boolean));
+          if (deletedIds.size && this.messages.length) {
+            this.messages = this.messages.filter(
+              m => !deletedIds.has(m.whatsapp_message_id)
+            );
+          }
+
+          // Atualiza lista de chats (preview pode ter mudado)
+          this.fetchChats();
+        })
+        .listen('.MessageReaction', (data) => {
+          const { messageId, emoji, reactorJid } = data.payload ?? {};
+          if (!messageId) return;
+
+          // { [reactorJid]: emoji } — cada pessoa só tem 1 reação por mensagem
+          const byReactor = { ...(this.reactions[messageId] ?? {}) };
+          if (!emoji) {
+            delete byReactor[reactorJid];
+          } else {
+            byReactor[reactorJid] = emoji;
+          }
+          this.reactions = { ...this.reactions, [messageId]: byReactor };
+        })
+        .listen('.InstanceUpdated', (data) => {
+          // Status do WhatsApp mudou (ex: desconectou)
+          if (data.status) this.status = data.status;
+        })
+        .error(() => {
+          // Fallback silencioso — polling continua
+          console.warn('Echo error no ChatScreen, usando polling');
+        });
+    },
+
+    disconnectEcho() {
+      if (this.echoChannel) {
+        window.Echo.leaveChannel(`instance.${this.instanceSlug}`);
+        this.echoChannel = null;
       }
     },
 
@@ -317,6 +475,10 @@ export default {
     openChat(jid) {
       this.activeJid = jid;
       this.messages = [];
+      // Zera o badge de não lidos ao abrir a conversa
+      if (this.unreadCounts[jid]) {
+        this.unreadCounts = { ...this.unreadCounts, [jid]: 0 };
+      }
       this.fetchMessages(jid);
     },
 
@@ -415,13 +577,17 @@ export default {
 
     chatLabel(c) {
       if (!c?.jid) return '(sem id)';
+      // Usa sender_name da última mensagem recebida se disponível
+      if (c.last_message?.sender_name && !c.last_message?.from_me) {
+        return c.last_message.sender_name;
+      }
       const num = c.jid.split('@')[0].split('-')[0];
       return num;
     },
 
     chatInitial(c) {
       const label = this.chatLabel(c);
-      return label.slice(-2).toUpperCase();
+      return label.slice(0, 2).toUpperCase();
     },
 
     avatarStyle(jid) {
@@ -482,6 +648,25 @@ export default {
           style: 'color:#a00; font-size:12px;',
         }),
       );
+    },
+
+    reactionCounts(byReactor) {
+      // { jid: emoji } → { emoji: count }
+      const counts = {};
+      Object.values(byReactor).forEach(e => { counts[e] = (counts[e] ?? 0) + 1; });
+      return counts;
+    },
+    formatPhone(phone) {
+      if (!phone) return '';
+      const digits = String(phone).replace(/\D/g, '');
+      if ((digits.length === 13 || digits.length === 12) && digits.startsWith('55')) {
+        const ddd = digits.slice(2, 4);
+        const n = digits.slice(4);
+        const part1 = n.length === 9 ? n.slice(0, 5) : n.slice(0, 4);
+        const part2 = n.length === 9 ? n.slice(5) : n.slice(4);
+        return `+55 (${ddd}) ${part1}-${part2}`;
+      }
+      return `+${digits}`;
     },
   },
 };
@@ -559,6 +744,8 @@ export default {
 .wa-empty--main h3 { margin: 0 0 8px; }
 
 .wa-chat-item {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   background: none;
   border: none;
@@ -705,6 +892,21 @@ export default {
   margin-top: 4px;
   text-align: right;
 }
+.wa-msg__sender {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.wa-msg__sender-name {
+  font-size: .75rem;
+  font-weight: 600;
+  color: #065f46;
+}
+.wa-msg__sender-phone {
+  font-size: .7rem;
+  color: #6b7280;
+}
 
 .wa-composer {
   display: flex;
@@ -796,5 +998,89 @@ export default {
   color: #856404;
   font-size: 12px;
   text-align: center;
+}
+
+/* Badge de mensagens não lidas */
+.wa-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: auto;
+}
+
+/* Degradê verde passando horizontalmente ao receber mensagem */
+@keyframes msg-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.wa-chat-item--flash::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, #86efac 40%, #bbf7d0 50%, #86efac 60%, transparent 100%);
+  animation: msg-sweep 0.4s ease-out forwards;
+  pointer-events: none;
+}
+
+.wa-audio-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: .7;
+  transition: opacity .2s;
+  title: "Ativar notificações sonoras";
+}
+.wa-audio-btn:hover { opacity: 1; background: rgba(0,0,0,.06); }
+
+.wa-tab-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #d1d7db;
+  border-radius: 12px;
+  background: #fff;
+  color: #54656f;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wa-tab-btn:hover { background: #e9edef; }
+.wa-tab-btn--active {
+  background: #008069;
+  color: #fff;
+  border-color: #008069;
+}
+.wa-side__webhooks {
+  flex: 1;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.wa-msg__reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.wa-reaction {
+  background: rgba(0,0,0,.06);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: .8rem;
+  cursor: default;
+  user-select: none;
 }
 </style>

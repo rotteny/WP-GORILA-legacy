@@ -24,7 +24,9 @@
 
     <div v-else-if="hasQr" class="wa-state wa-state--pending">
       <p>Escaneie o QR Code abaixo com o WhatsApp do celular:</p>
-      <qrcode-vue :value="qrCode" :size="260" level="M" />
+      <div class="wa-qr-wrapper">
+        <qrcode-vue :value="qrCode" :size="260" level="M" />
+      </div>
       <p class="wa-meta">Status atual: {{ status }}</p>
     </div>
 
@@ -80,6 +82,7 @@ export default {
       resetting: false,
       pollHandle: null,
       pollIntervalMs: 3000,
+      echoChannel: null,
     };
   },
 
@@ -97,19 +100,51 @@ export default {
 
   mounted() {
     this.fetchStatus();
-    this.startPolling();
+    this.connectEcho();
   },
 
   beforeUnmount() {
+    this.disconnectEcho();
     this.stopPolling();
   },
 
   // Compat Vue 2
   beforeDestroy() {
+    this.disconnectEcho();
     this.stopPolling();
   },
 
   methods: {
+    connectEcho() {
+      if (!window.Echo) {
+        // Fallback: polling se Echo não disponível
+        this.startPolling();
+        return;
+      }
+      this.echoChannel = window.Echo.channel(`instance.${this.instanceSlug}`)
+        .listen('.InstanceUpdated', (data) => {
+          this.status      = data.status;
+          this.qrCode      = data.qr_code || null;
+          this.lastEventAt = data.last_event_at || null;
+          this.projectName = data.name || null;
+          if (this.status === 'CONNECTED') {
+            this.disconnectEcho();
+          }
+        })
+        .error(() => {
+          // Fallback para polling se WS falhar
+          this.startPolling();
+        });
+    },
+
+    disconnectEcho() {
+      if (this.echoChannel) {
+        window.Echo.leaveChannel(`instance.${this.instanceSlug}`);
+        this.echoChannel = null;
+      }
+      this.stopPolling();
+    },
+
     startPolling() {
       if (this.pollHandle) return;
       this.pollHandle = setInterval(this.fetchStatus, this.pollIntervalMs);
@@ -210,6 +245,12 @@ export default {
 .wa-state--ok        { background: #ecfdf5; color: #065f46; }
 .wa-state--pending   { background: #fffbeb; color: #92400e; }
 .wa-state--waiting   { background: #fef2f2; color: #991b1b; }
+
+.wa-qr-wrapper {
+  display: flex;
+  justify-content: center;
+  margin: .75rem 0;
+}
 
 .wa-dot {
   display: inline-block;

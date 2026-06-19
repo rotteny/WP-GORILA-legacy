@@ -1,7 +1,32 @@
 import { createApp } from 'vue';
+import axios from 'axios';
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
 import WhatsAppConnect from './components/WhatsAppConnect.vue';
 import ChatScreen from './components/ChatScreen.vue';
 import InstancesScreen from './components/InstancesScreen.vue';
+
+// Configura axios globalmente para enviar CSRF token e cookies de sessão
+axios.defaults.headers.common['X-CSRF-TOKEN'] =
+    document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+axios.defaults.withCredentials = true;
+
+window.Pusher = Pusher;
+
+// WebSocket via proxy nginx (mesmo host da página, porta 443/80).
+// cluster é obrigatório no pusher-js mesmo com wsHost customizado.
+const _isTLS = window.location.protocol === 'https:';
+window.Echo = new Echo({
+    broadcaster: 'reverb',
+    key: import.meta.env.VITE_REVERB_APP_KEY,
+    wsHost: window.location.hostname,
+    wsPort: 80,
+    wssPort: 443,
+    forceTLS: _isTLS,
+    enabledTransports: ['ws', 'wss'],
+    disableStats: true,
+    cluster: 'mt1',
+});
 
 // Roteamento mínimo: o ID do mount escolhe qual componente carregar.
 // #wa-app           → tela de conexão (QR code) de UMA instância
