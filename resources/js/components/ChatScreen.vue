@@ -229,6 +229,7 @@ export default {
       unreadCounts: {},         // { [jid]: number } — badges de não lidos
       flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
       audioBlocked: false,      // true enquanto o browser não permitiu áudio
+      audioEl: null,            // elemento reutilizado (desbloqueio persiste no mesmo objeto)
     };
   },
 
@@ -272,12 +273,13 @@ export default {
   },
 
   mounted() {
+    this.audioEl = new Audio('/sounds/alarme.mp3');
     this.refreshAll();
     this.connectEcho();
     this.pollHandle = setInterval(this.fetchChats, 30_000);
-    // Testa permissão de áudio ao montar; exibe banner se bloqueado.
-    new Audio('/sounds/alarme.mp3').play()
-      .then(a => { a?.pause?.(); this.audioBlocked = false; })
+    // Testa autoplay; se bloqueado exibe banner para o usuário autorizar.
+    this.audioEl.play()
+      .then(() => { this.audioEl.pause(); this.audioEl.currentTime = 0; this.audioBlocked = false; })
       .catch(() => { this.audioBlocked = true; });
   },
 
@@ -286,8 +288,8 @@ export default {
 
   methods: {
     requestAudio() {
-      const a = new Audio('/sounds/alarme.mp3');
-      a.play()
+      // Mesmo elemento — o browser libera autoplay no objeto que recebeu gesto do usuário
+      this.audioEl.play()
         .then(() => { this.audioBlocked = false; })
         .catch(() => { this.audioBlocked = true; });
     },
@@ -309,7 +311,8 @@ export default {
           const payload = data.payload;
           if (!payload) return;
 
-          new Audio('/sounds/alarme.mp3').play().catch(() => {});
+          this.audioEl.currentTime = 0;
+          this.audioEl.play().catch(() => {});
 
           // Captura timestamps antes de recarregar para detectar qual chat mudou
           const prevTimestamps = Object.fromEntries(
