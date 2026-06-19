@@ -297,6 +297,15 @@ async function startBaileys(slug) {
       timestamp: new Date().toISOString(),
     });
   });
+
+  instance.sock.ev.on('messages.delete', (item) => {
+    notifyLaravel(instance, {
+      event: 'message_deleted',
+      status: instance.status,
+      payload: item, // { keys: [{ remoteJid, id, fromMe }] }
+      timestamp: new Date().toISOString(),
+    });
+  });
 }
 
 // =============================================================================

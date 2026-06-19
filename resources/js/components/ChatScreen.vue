@@ -362,6 +362,21 @@ export default {
             this.fetchMessages(this.activeJid).then(() => this.scrollToBottom());
           }
         })
+        .listen('.MessageDeleted', (data) => {
+          const keys = data.payload?.keys ?? [];
+          if (!keys.length) return;
+
+          // Remove mensagens apagadas da lista visível
+          const deletedIds = new Set(keys.map(k => k.id).filter(Boolean));
+          if (deletedIds.size && this.messages.length) {
+            this.messages = this.messages.filter(
+              m => !deletedIds.has(m.whatsapp_message_id)
+            );
+          }
+
+          // Atualiza lista de chats (preview pode ter mudado)
+          this.fetchChats();
+        })
         .listen('.InstanceUpdated', (data) => {
           // Status do WhatsApp mudou (ex: desconectou)
           if (data.status) this.status = data.status;
