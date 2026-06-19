@@ -1,9 +1,5 @@
 <template>
   <div class="wa-wrap">
-    <!-- Banner de permissão de áudio -->
-    <div v-if="audioBlocked" class="wa-audio-banner" @click="requestAudio">
-      🔔 Clique aqui para ativar o som de notificações
-    </div>
     <!-- COLUNA ESQUERDA: lista de conversas -->
     <aside class="wa-side">
       <header class="wa-side__header">
@@ -11,6 +7,9 @@
           <a href="/" class="wa-back">← Projetos</a>
           <h2>Conversas</h2>
           <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
+          <button v-if="audioBlocked" class="wa-audio-btn" @click="requestAudio" title="Ativar notificações sonoras">
+            🔇
+          </button>
         </div>
         <div v-if="projectName" class="wa-side__project">{{ projectName }}</div>
       </header>
@@ -228,8 +227,9 @@ export default {
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
       unreadCounts: JSON.parse(localStorage.getItem(`wp_unread_${document.getElementById('wa-chat-app')?.dataset.instanceSlug}`) || '{}'),
       flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
-      audioBlocked: localStorage.getItem('wp_audio_unlocked') !== '1',
-      audioEl: null,            // elemento reutilizado (desbloqueio persiste no mesmo objeto)
+      audioBlocked: true,
+      audioCtx: null,
+      audioBuffer: null,
     };
   },
 
@@ -282,48 +282,46 @@ export default {
   },
 
   mounted() {
-    this.audioEl = new Audio('/sounds/alarme.mp3');
+    this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    if (localStorage.getItem('wp_audio_unlocked') === '1') {
-      // Já autorizou antes: sem banner, mas ainda precisa de gesto real.
-      // Desbloqueio silencioso no primeiro clique em qualquer lugar da página.
-      this.audioBlocked = false;
-      document.addEventListener('click', this._silentUnlock, { once: true });
-    }
-    // Se nunca autorizou, audioBlocked já é true e o banner aparece.
+    // Pré-carrega o buffer uma vez
+    fetch('/sounds/alarme.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => this.audioCtx.decodeAudioData(buf))
+      .then(decoded => { this.audioBuffer = decoded; })
+      .catch(() => {});
+
+    // Tenta resumir imediatamente (funciona se o browser já autorizou na sessão)
+    this.audioCtx.resume().then(() => {
+      if (this.audioCtx.state === 'running') this.audioBlocked = false;
+    });
 
     this.refreshAll();
     this.connectEcho();
     this.pollHandle = setInterval(this.fetchChats, 30_000);
   },
 
-  beforeUnmount() {
-    this.disconnectEcho();
-    this.stopPolling();
-    this.clearFile();
-    document.removeEventListener('click', this._silentUnlock);
-  },
-  beforeDestroy() {
-    this.disconnectEcho();
-    this.stopPolling();
-    this.clearFile();
-    document.removeEventListener('click', this._silentUnlock);
-  },
+  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
+  beforeDestroy()  { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
 
   methods: {
-    _silentUnlock() {
-      this.audioEl.play()
-        .then(() => { this.audioEl.pause(); this.audioEl.currentTime = 0; })
-        .catch(() => {});
+    requestAudio() {
+      // AudioContext.resume() é o gesto oficial que desbloqueia o contexto
+      // de áudio no browser — persiste durante toda a sessão após um clique.
+      this.audioCtx.resume().then(() => {
+        localStorage.setItem('wp_audio_unlocked', '1');
+        this.audioBlocked = false;
+        this._playAlarm(); // toca como confirmação
+      });
     },
 
-    requestAudio() {
-      this.audioEl.play()
-        .then(() => {
-          localStorage.setItem('wp_audio_unlocked', '1');
-          this.audioBlocked = false;
-        })
-        .catch(() => { this.audioBlocked = true; });
+    _playAlarm() {
+      if (!this.audioBuffer || !this.audioCtx) return;
+      if (this.audioCtx.state === 'suspended') { this.audioBlocked = true; return; }
+      const src = this.audioCtx.createBufferSource();
+      src.buffer = this.audioBuffer;
+      src.connect(this.audioCtx.destination);
+      src.start(0);
     },
 
     stopPolling() {
@@ -343,8 +341,7 @@ export default {
           const payload = data.payload;
           if (!payload) return;
 
-          this.audioEl.currentTime = 0;
-          this.audioEl.play().catch(() => { this.audioBlocked = true; });
+          this._playAlarm();
 
           // Captura timestamps antes de recarregar para detectar qual chat mudou
           const prevTimestamps = Object.fromEntries(
@@ -956,20 +953,16 @@ export default {
   pointer-events: none;
 }
 
-.wa-audio-banner {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: #1e293b;
-  color: #fff;
-  padding: .8rem 1.6rem;
-  border-radius: 999px;
-  font-size: .9rem;
+.wa-audio-btn {
+  background: none;
+  border: none;
   cursor: pointer;
-  z-index: 999;
-  box-shadow: 0 8px 24px rgba(0,0,0,.35);
-  white-space: nowrap;
+  font-size: 1.1rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: .7;
+  transition: opacity .2s;
+  title: "Ativar notificações sonoras";
 }
-.wa-audio-banner:hover { background: #334155; }
+.wa-audio-btn:hover { opacity: 1; background: rgba(0,0,0,.06); }
 </style>
