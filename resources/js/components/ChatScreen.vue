@@ -270,12 +270,21 @@ export default {
     this.refreshAll();
     this.connectEcho();
     this.pollHandle = setInterval(this.fetchChats, 30_000);
+    // Browsers bloqueiam audio.play() sem interação prévia do usuário.
+    // Primeiro clique em qualquer lugar destrava o contexto de áudio.
+    document.addEventListener('click', this._unlockAudio, { once: true });
   },
 
-  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
-  beforeDestroy() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
+  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); document.removeEventListener('click', this._unlockAudio); },
+  beforeDestroy()  { this.disconnectEcho(); this.stopPolling(); this.clearFile(); document.removeEventListener('click', this._unlockAudio); },
 
   methods: {
+    _unlockAudio() {
+      const a = new Audio('/sounds/alarme.mp3');
+      a.volume = 0;
+      a.play().then(() => a.pause()).catch(() => {});
+    },
+
     stopPolling() {
       if (this.pollHandle) {
         clearInterval(this.pollHandle);
