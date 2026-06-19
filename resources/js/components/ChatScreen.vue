@@ -228,7 +228,7 @@ export default {
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
       unreadCounts: JSON.parse(localStorage.getItem(`wp_unread_${document.getElementById('wa-chat-app')?.dataset.instanceSlug}`) || '{}'),
       flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
-      audioBlocked: false,      // true enquanto o browser não permitiu áudio
+      audioBlocked: localStorage.getItem('wp_audio_unlocked') !== '1',
       audioEl: null,            // elemento reutilizado (desbloqueio persiste no mesmo objeto)
     };
   },
@@ -286,10 +286,6 @@ export default {
     this.refreshAll();
     this.connectEcho();
     this.pollHandle = setInterval(this.fetchChats, 30_000);
-    // Testa autoplay; se bloqueado exibe banner para o usuário autorizar.
-    this.audioEl.play()
-      .then(() => { this.audioEl.pause(); this.audioEl.currentTime = 0; this.audioBlocked = false; })
-      .catch(() => { this.audioBlocked = true; });
   },
 
   beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
@@ -297,9 +293,11 @@ export default {
 
   methods: {
     requestAudio() {
-      // Mesmo elemento — o browser libera autoplay no objeto que recebeu gesto do usuário
       this.audioEl.play()
-        .then(() => { this.audioBlocked = false; })
+        .then(() => {
+          localStorage.setItem('wp_audio_unlocked', '1');
+          this.audioBlocked = false;
+        })
         .catch(() => { this.audioBlocked = true; });
     },
 
@@ -321,7 +319,7 @@ export default {
           if (!payload) return;
 
           this.audioEl.currentTime = 0;
-          this.audioEl.play().catch(() => {});
+          this.audioEl.play().catch(() => { this.audioBlocked = true; });
 
           // Captura timestamps antes de recarregar para detectar qual chat mudou
           const prevTimestamps = Object.fromEntries(
