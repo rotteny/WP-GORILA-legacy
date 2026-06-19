@@ -283,15 +283,40 @@ export default {
 
   mounted() {
     this.audioEl = new Audio('/sounds/alarme.mp3');
+
+    if (localStorage.getItem('wp_audio_unlocked') === '1') {
+      // Já autorizou antes: sem banner, mas ainda precisa de gesto real.
+      // Desbloqueio silencioso no primeiro clique em qualquer lugar da página.
+      this.audioBlocked = false;
+      document.addEventListener('click', this._silentUnlock, { once: true });
+    }
+    // Se nunca autorizou, audioBlocked já é true e o banner aparece.
+
     this.refreshAll();
     this.connectEcho();
     this.pollHandle = setInterval(this.fetchChats, 30_000);
   },
 
-  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
-  beforeDestroy()  { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
+  beforeUnmount() {
+    this.disconnectEcho();
+    this.stopPolling();
+    this.clearFile();
+    document.removeEventListener('click', this._silentUnlock);
+  },
+  beforeDestroy() {
+    this.disconnectEcho();
+    this.stopPolling();
+    this.clearFile();
+    document.removeEventListener('click', this._silentUnlock);
+  },
 
   methods: {
+    _silentUnlock() {
+      this.audioEl.play()
+        .then(() => { this.audioEl.pause(); this.audioEl.currentTime = 0; })
+        .catch(() => {});
+    },
+
     requestAudio() {
       this.audioEl.play()
         .then(() => {
