@@ -85,6 +85,10 @@
             :class="m.from_me ? 'wa-msg--out' : 'wa-msg--in'"
           >
             <div class="wa-msg__bubble">
+              <div v-if="!m.from_me && (m.sender_name || m.sender_phone)" class="wa-msg__sender">
+                <span v-if="m.sender_name" class="wa-msg__sender-name">{{ m.sender_name }}</span>
+                <span v-if="m.sender_phone" class="wa-msg__sender-phone">{{ formatPhone(m.sender_phone) }}</span>
+              </div>
               <!-- Imagem -->
               <img
                 v-if="m.type === 'image' || m.type === 'sticker'"
@@ -565,13 +569,17 @@ export default {
 
     chatLabel(c) {
       if (!c?.jid) return '(sem id)';
+      // Usa sender_name da última mensagem recebida se disponível
+      if (c.last_message?.sender_name && !c.last_message?.from_me) {
+        return c.last_message.sender_name;
+      }
       const num = c.jid.split('@')[0].split('-')[0];
       return num;
     },
 
     chatInitial(c) {
       const label = this.chatLabel(c);
-      return label.slice(-2).toUpperCase();
+      return label.slice(0, 2).toUpperCase();
     },
 
     avatarStyle(jid) {
@@ -632,6 +640,19 @@ export default {
           style: 'color:#a00; font-size:12px;',
         }),
       );
+    },
+
+    formatPhone(phone) {
+      if (!phone) return '';
+      const digits = String(phone).replace(/\D/g, '');
+      if ((digits.length === 13 || digits.length === 12) && digits.startsWith('55')) {
+        const ddd = digits.slice(2, 4);
+        const n = digits.slice(4);
+        const part1 = n.length === 9 ? n.slice(0, 5) : n.slice(0, 4);
+        const part2 = n.length === 9 ? n.slice(5) : n.slice(4);
+        return `+55 (${ddd}) ${part1}-${part2}`;
+      }
+      return `+${digits}`;
     },
   },
 };
@@ -856,6 +877,21 @@ export default {
   color: #667781;
   margin-top: 4px;
   text-align: right;
+}
+.wa-msg__sender {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+.wa-msg__sender-name {
+  font-size: .75rem;
+  font-weight: 600;
+  color: #065f46;
+}
+.wa-msg__sender-phone {
+  font-size: .7rem;
+  color: #6b7280;
 }
 
 .wa-composer {

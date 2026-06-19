@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\InstanceUpdated;
 use App\Models\Instance;
+use App\Models\Message;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -39,6 +40,74 @@ class WhatsAppController extends Controller
                 'instance_id' => $data['instance_id'],
                 'payload'     => $data['payload'] ?? null,
             ]);
+
+            $payload  = $data['payload'] ?? [];
+            $messages = $payload['messages'] ?? [];
+
+            foreach ($messages as $raw) {
+                $key   = $raw['key'] ?? [];
+                $msgId = $key['id'] ?? null;
+
+                if (!$msgId) {
+                    continue;
+                }
+
+                $msgContent = $raw['message'] ?? [];
+
+                $type = match (true) {
+                    !empty($msgContent['imageMessage'])    => 'image',
+                    !empty($msgContent['videoMessage'])    => 'video',
+                    !empty($msgContent['audioMessage'])    => 'audio',
+                    !empty($msgContent['documentMessage']) => 'document',
+                    !empty($msgContent['stickerMessage'])  => 'sticker',
+                    !empty($msgContent['locationMessage']) => 'location',
+                    !empty($msgContent['contactMessage'])  => 'contact',
+                    default                                => 'text',
+                };
+
+                $body = $msgContent['conversation']
+                    ?? $msgContent['extendedTextMessage']['text']
+                    ?? $msgContent['imageMessage']['caption']
+                    ?? $msgContent['videoMessage']['caption']
+                    ?? $msgContent['documentMessage']['fileName']
+                    ?? $msgContent['contactMessage']['displayName']
+                    ?? null;
+
+                $participantJid = $key['participant'] ?? $key['remoteJid'] ?? '';
+                $phoneRaw       = explode('@', $participantJid)[0];
+                $senderPhone    = preg_match('/^\d+$/', $phoneRaw) ? $phoneRaw : null;
+
+                $remoteJid = $key['remoteJid'] ?? '';
+                $chatType  = match (true) {
+                    str_contains($remoteJid, '@g.us')         => 'group',
+                    str_contains($remoteJid, '@newsletter')   => 'newsletter',
+                    str_contains($remoteJid, '@broadcast')    => 'broadcast',
+                    str_contains($remoteJid, '@lid')          => 'private_lid',
+                    str_contains($remoteJid, '@s.whatsapp.net') => 'private',
+                    default                                   => 'unknown',
+                };
+
+                $receivedAt = isset($raw['messageTimestamp'])
+                    ? \Carbon\Carbon::createFromTimestamp($raw['messageTimestamp'])
+                    : now();
+
+                Message::updateOrCreate(
+                    ['whatsapp_message_id' => $msgId],
+                    [
+                        'instance_id'  => $data['instance_id'],
+                        'from'         => $remoteJid,
+                        'chat_type'    => $chatType,
+                        'participant'  => $key['participant'] ?? null,
+                        'from_me'      => (bool) ($key['fromMe'] ?? false),
+                        'type'         => $type,
+                        'body'         => $body,
+                        'sender_name'  => $raw['pushName'] ?? null,
+                        'sender_phone' => $senderPhone,
+                        'received_at'  => $receivedAt,
+                    ]
+                );
+            }
+
             return response()->json(['ok' => true]);
         }
 

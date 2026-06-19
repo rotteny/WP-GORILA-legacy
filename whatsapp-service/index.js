@@ -174,6 +174,12 @@ function summarizeMessage(rawMsg) {
     body,
     whatsapp_message_id: rawMsg?.key?.id || null,
     received_at: new Date().toISOString(),
+    sender_name:  rawMsg?.pushName || null,
+    sender_phone: (() => {
+      const jid = rawMsg?.key?.participant || rawMsg?.key?.remoteJid || '';
+      const num = jid.split('@')[0];
+      return /^\d+$/.test(num) ? num : null;
+    })(),
   };
 }
 
