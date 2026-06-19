@@ -893,13 +893,14 @@ export default {
   margin-left: auto;
 }
 
-/* Animação de pulse ao receber mensagem */
-@keyframes pulse-bg {
-  0%   { background-color: #dcfce7; }
-  50%  { background-color: #bbf7d0; }
-  100% { background-color: transparent; }
+/* Animação ao receber mensagem: fade verde entrando e saindo */
+@keyframes msg-flash {
+  0%   { background-color: transparent; box-shadow: none; }
+  15%  { background-color: #bbf7d0; box-shadow: inset 3px 0 0 #22c55e; }
+  85%  { background-color: #dcfce7; box-shadow: inset 3px 0 0 #86efac; }
+  100% { background-color: transparent; box-shadow: none; }
 }
 .wa-chat-item--flash {
-  animation: pulse-bg 2s ease-out;
+  animation: msg-flash 2s ease-in-out;
 }
 </style>
