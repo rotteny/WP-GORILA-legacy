@@ -280,6 +280,25 @@ async function startBaileys(slug) {
 
     if (Array.isArray(m.messages)) {
       for (const raw of m.messages) {
+        // Reações chegam via messages.upsert como reactionMessage
+        const reaction = raw?.message?.reactionMessage;
+        if (reaction) {
+          notifyLaravel(instance, {
+            event: 'message_reaction',
+            status: instance.status,
+            payload: {
+              messageId:  reaction.key?.id,
+              remoteJid:  reaction.key?.remoteJid,
+              emoji:      reaction.text ?? '',
+              fromMe:     reaction.key?.fromMe ?? false,
+              reactorJid: raw.key?.participant ?? raw.key?.remoteJid,
+              ts:         reaction.senderTimestampMs,
+            },
+            timestamp: new Date().toISOString(),
+          });
+          continue;
+        }
+
         if (!isRealMessage(raw)) continue;
 
         const summary = summarizeMessage(raw);
@@ -313,23 +332,8 @@ async function startBaileys(slug) {
     });
   });
 
-  instance.sock.ev.on('messages.reaction', (reactions) => {
-    for (const r of reactions) {
-      notifyLaravel(instance, {
-        event: 'message_reaction',
-        status: instance.status,
-        payload: {
-          messageId:  r.reaction?.key?.id,          // ID da mensagem que recebeu a reação
-          remoteJid:  r.reaction?.key?.remoteJid,
-          emoji:      r.reaction?.text ?? '',
-          fromMe:     r.reaction?.key?.fromMe ?? false,
-          reactorJid: r.key?.participant ?? r.key?.remoteJid, // quem reagiu
-          ts:         r.reaction?.senderTimestampMs,
-        },
-        timestamp: new Date().toISOString(),
-      });
-    }
-  });
+  // messages.reaction não é emitido em Baileys 6.7.x —
+  // reações chegam via messages.upsert como reactionMessage (tratado acima).
 }
 
 // =============================================================================
