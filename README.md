@@ -226,6 +226,38 @@ INITIALIZING ──► PENDING_QR ──► CONNECTED ──► (rede cai) ─�
 A pasta `whatsapp-service/auth_info/{slug}/` é bind-mount — a sessão sobrevive a
 `docker compose down`. Apagar o conteúdo dela força novo QR **só daquele projeto**.
 
+### Tipos de conversa (`chat_type`)
+
+O Baileys identifica o tipo de origem de cada mensagem pelo sufixo do JID:
+
+| Sufixo do JID | `chat_type` | Descrição |
+|---|---|---|
+| `@s.whatsapp.net` | `private` | Contato individual |
+| `@g.us` | `group` | Grupo |
+| `@broadcast` | `broadcast` | Lista de transmissão |
+| `@newsletter` | `newsletter` | Canal do WhatsApp |
+| `@lid` | `private_lid` | Identificador de dispositivo vinculado |
+
+O campo `chat_type` é salvo no banco em cada mensagem e exibido como badge na lista de conversas.
+
+### Campos do remetente
+
+Cada mensagem recebida expõe:
+
+- **`sender_name`** — nome de exibição do remetente (`pushName`), conforme cadastrado no WhatsApp dele.
+- **`sender_phone`** — número extraído do JID do remetente (ex.: `5511999887766`). Em grupos, vem do `key.participant`; em conversas privadas, vem do `key.remoteJid`.
+
+### Eventos em tempo real
+
+O `whatsapp-service` escuta os seguintes eventos do Baileys e repassa via webhook ao Laravel, que faz broadcast via Reverb:
+
+| Evento Baileys | Webhook `event` | Broadcast Laravel |
+|---|---|---|
+| `messages.upsert` | `message` | `MessageReceived` |
+| `messages.delete` | `message_deleted` | `MessageDeleted` |
+| `messages.reaction` | `message_reaction` | `MessageReaction` |
+| `connection.update` | `connection` / `qr` | `InstanceUpdated` |
+
 ---
 
 ## API — exemplos
