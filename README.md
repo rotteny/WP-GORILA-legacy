@@ -138,27 +138,17 @@ git clone git@github.com:rotteny/wp-gorila.git
 
 O script faz tudo automaticamente:
 1. Valida que o Laradock principal existe em `../../laradock`
-2. Anexa o `whatsapp-service` no `docker-compose.yml` do Laradock principal (idempotente)
-3. Cria `.env` a partir do `.env.example` (não sobrescreve se já existir)
-4. Garante a pasta `whatsapp-service/auth_info/`
+2. Builda a imagem Docker do `whatsapp-service` localmente (`whatsapp-service:local`)
+3. Anexa o `whatsapp-service` e `reverb` no `docker-compose.yml` do Laradock (idempotente)
+4. Cria `.env` a partir do `.env.example` (não sobrescreve se já existir)
+5. Garante a pasta `whatsapp-service/auth_info/`
+6. Sobe os containers `whatsapp-service` e `reverb`
 
-### 3. Subir os serviços Docker
+> **Importante:** o `index.js` do `whatsapp-service` é copiado para dentro da imagem no build
+> (não é bind-mounted). Sempre que editar o código do Node, rebuilde a imagem com o `setup.sh`
+> ou manualmente: `docker build -t whatsapp-service:local ./whatsapp-service/`
 
-```bash
-cd ../../laradock
-docker compose up -d whatsapp-service reverb
-```
-
-- `whatsapp-service` — na primeira execução builda a imagem (Baileys via npm), demora 2 a 4 min.
-- `reverb` — container `wp_gorila_reverb`, server WebSocket na porta 8080 interna (proxiado pelo Nginx em `/app`).
-
-Verificar se Reverb subiu:
-```bash
-docker logs wp_gorila_reverb --tail 20
-# Deve exibir: Starting server on 0.0.0.0:8080
-```
-
-### 4. Instalar dependências e migrar
+### 3. Instalar dependências e migrar
 
 ```bash
 docker compose exec --user=laradock workspace bash
@@ -170,6 +160,12 @@ php artisan db:seed --class=AdminUserSeeder
 php artisan db:seed --class=PilotoInstanceSeeder
 npm install && npm run build
 exit
+```
+
+Verificar se Reverb subiu:
+```bash
+docker logs wp_gorila_reverb --tail 20
+# Deve exibir: Starting server on 0.0.0.0:8080
 ```
 
 ### 5. Acessar
@@ -216,10 +212,11 @@ docker exec -u laradock laradock-workspace-1 bash -c \
 |---|---|
 | `docker compose up -d whatsapp-service reverb` (em `laradock/`) | Subir ambos os serviços |
 | `docker compose down whatsapp-service reverb` | Derrubar ambos |
-| `docker compose logs -f whatsapp-service` | Ver eventos Baileys (QR, conexão, msgs) |
+| `docker logs whatsapp-service -f` | Ver eventos Baileys (QR, conexão, msgs) |
 | `docker logs wp_gorila_reverb -f` | Ver logs do WebSocket server |
 | `docker compose exec --user=laradock workspace bash` | Entrar no workspace Laravel |
-| `docker compose build whatsapp-service` | Rebuild após editar `index.js` |
+| `docker build -t whatsapp-service:local ./whatsapp-service/ && docker restart whatsapp-service` | Rebuild após editar `index.js` |
+| `npm run build` (dentro do workspace) | Rebuild frontend após editar Vue/JS |
 | Botão "Gerar novo QR" na UI | Recomeçar pareamento de uma instância |
 
 ---
@@ -275,33 +272,66 @@ O `whatsapp-service` escuta os seguintes eventos do Baileys e repassa via webhoo
 
 ---
 
-## API — exemplos
+## API — referência rápida
 
-Todos os endpoints de instância ficam em `/api/whatsapp/`. Requerem sessão autenticada
-(exceto `/webhook`).
+Todos os endpoints ficam em `/api/whatsapp/` e requerem sessão autenticada (exceto `/webhook`).
+Documentação completa de payloads em [`docs/mensagens.md`](docs/mensagens.md).
+
+### Instâncias
 
 ```bash
-# Listar projetos
-curl -b cookies.txt https://wp.local/api/whatsapp/instances | jq .
+GET    /api/whatsapp/instances                   # listar projetos
+POST   /api/whatsapp/instances                   # criar projeto { slug, name }
+DELETE /api/whatsapp/instances/{slug}            # remover projeto
+GET    /api/whatsapp/instances/{slug}/status     # status atual
+POST   /api/whatsapp/instances/{slug}/reset      # gerar novo QR
+```
 
-# Criar projeto
-curl -b cookies.txt -X POST https://wp.local/api/whatsapp/instances \
-  -H "Content-Type: application/json" \
-  -d '{"slug":"acca","name":"Atendimento ACCA"}'
+### Envio de mensagens
 
-# Status de uma instância
-curl -b cookies.txt https://wp.local/api/whatsapp/instances/piloto/status | jq .
+```bash
+# Com slug específico (retorna 409 se não CONNECTED)
+POST /api/whatsapp/instances/{slug}/send-message   { number, message }
+POST /api/whatsapp/instances/{slug}/send-media     multipart: file, number, caption?
 
-# Enviar mensagem
-curl -b cookies.txt -X POST https://wp.local/api/whatsapp/instances/piloto/send-message \
+# Sem slug — fallback automático entre instâncias CONNECTED
+POST /api/whatsapp/send-message                    { number, message }
+POST /api/whatsapp/send-media                      multipart: file, number, caption?
+```
+
+### Conversas e mídia
+
+```bash
+GET /api/whatsapp/instances/{slug}/chats/{jid}/messages   # histórico de mensagens
+GET /api/whatsapp/instances/{slug}/media/{message_id}     # download de mídia
+```
+
+### Webhooks de redirecionamento
+
+```bash
+GET    /api/whatsapp/instances/{slug}/webhooks            # listar configs
+PUT    /api/whatsapp/instances/{slug}/webhooks            # salvar { event, url, active, secret? }
+DELETE /api/whatsapp/instances/{slug}/webhooks/{event}    # remover config de um evento
+```
+
+Eventos disponíveis: `message`, `message_deleted`, `message_reaction`, `connection`.
+
+### Exemplos curl
+
+```bash
+# Enviar mensagem com fallback automático
+curl -b cookies.txt -X POST https://wp.local/api/whatsapp/send-message \
   -H "Content-Type: application/json" \
   -d '{"number":"5511999999999","message":"Olá da Gorila!"}'
 
-# Resetar sessão (gera novo QR)
-curl -b cookies.txt -X POST https://wp.local/api/whatsapp/instances/piloto/reset
+# Enviar arquivo
+curl -b cookies.txt -X POST https://wp.local/api/whatsapp/send-media \
+  -F "number=5511999999999" -F "file=@foto.jpg" -F "caption=Veja!"
 
-# Deletar instância
-curl -b cookies.txt -X DELETE https://wp.local/api/whatsapp/instances/acca
+# Configurar webhook para novas mensagens
+curl -b cookies.txt -X PUT https://wp.local/api/whatsapp/instances/piloto/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"event":"message","url":"https://meu-sistema.com/hook","active":true}'
 ```
 
 ---
