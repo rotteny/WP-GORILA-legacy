@@ -1,0 +1,74 @@
+name: WP Gorila — Deploy Homologação
+
+on:
+  push:
+    branches: [homolog]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Atualizar código no servidor
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOMOLOG_SSH_HOST }}
+          username: ${{ secrets.HOMOLOG_SSH_USER }}
+          key: ${{ secrets.HOMOLOG_SSH_KEY }}
+          port: ${{ secrets.HOMOLOG_SSH_PORT }}
+          script: |
+            set -e
+            cd /app/www/wp-gorila
+            sudo chown -R gorillas:gorillas storage bootstrap/cache
+            git fetch origin
+            git reset --hard origin/homolog
+            sudo chown -R www-data:www-data storage bootstrap/cache
+            sudo chmod -R ug+rwx storage bootstrap/cache
+
+      - name: Upload assets compilados
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOMOLOG_SSH_HOST }}
+          username: ${{ secrets.HOMOLOG_SSH_USER }}
+          key: ${{ secrets.HOMOLOG_SSH_KEY }}
+          port: ${{ secrets.HOMOLOG_SSH_PORT }}
+          source: public/build
+          target: /app/www/wp-gorila/public/
+
+      - name: Composer, migrate, caches e restart de serviços
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.HOMOLOG_SSH_HOST }}
+          username: ${{ secrets.HOMOLOG_SSH_USER }}
+          key: ${{ secrets.HOMOLOG_SSH_KEY }}
+          port: ${{ secrets.HOMOLOG_SSH_PORT }}
+          script: |
+            set -e
+            cd /app/laradock
+            docker compose exec -T workspace bash -c "
+              cd /var/www/wp-gorila
+              composer install --no-dev --optimize-autoloader --no-interaction
+              php artisan migrate --force
+              php artisan cache:clear
+              php artisan config:cache
+              php artisan route:cache
+              php artisan view:cache
+              php artisan queue:restart
+            "
+            # Reinicia whatsapp-service via PM2
+            docker exec laradock-workspace-1 bash -c \
+              'source /home/laradock/.nvm/nvm.sh && pm2 restart wp-gorila-whatsapp'
