@@ -646,6 +646,8 @@ export default {
 .wa-empty--main h3 { margin: 0 0 8px; }
 
 .wa-chat-item {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   background: none;
   border: none;
@@ -902,30 +904,36 @@ export default {
   margin-left: auto;
 }
 
-/* Fade verde no fundo do contato ao receber mensagem */
-@keyframes msg-flash {
-  0%   { background-color: transparent; }
-  20%  { background-color: #bbf7d0; }
-  80%  { background-color: #dcfce7; }
-  100% { background-color: transparent; }
+/* Degradê verde passando horizontalmente ao receber mensagem */
+@keyframes msg-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
 }
-.wa-chat-item--flash {
-  animation: msg-flash 2s ease-in-out forwards;
+.wa-chat-item--flash::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, #86efac 50%, transparent 100%);
+  animation: msg-sweep 0.8s ease-in-out;
+  pointer-events: none;
 }
 
 .wa-audio-banner {
   position: fixed;
-  bottom: 1rem;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   background: #1e293b;
   color: #fff;
-  padding: .6rem 1.2rem;
+  padding: .8rem 1.6rem;
   border-radius: 999px;
-  font-size: .85rem;
+  font-size: .9rem;
   cursor: pointer;
   z-index: 999;
-  box-shadow: 0 4px 12px rgba(0,0,0,.25);
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
   white-space: nowrap;
 }
 .wa-audio-banner:hover { background: #334155; }
