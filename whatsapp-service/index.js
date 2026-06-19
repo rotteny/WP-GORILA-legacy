@@ -319,11 +319,11 @@ async function startBaileys(slug) {
         event: 'message_reaction',
         status: instance.status,
         payload: {
-          messageId:  r.key?.id,
-          remoteJid:  r.key?.remoteJid,
+          messageId:  r.reaction?.key?.id,          // ID da mensagem que recebeu a reação
+          remoteJid:  r.reaction?.key?.remoteJid,
           emoji:      r.reaction?.text ?? '',
-          fromMe:     r.key?.fromMe ?? false,
-          reactorJid: r.reaction?.key?.participant ?? r.key?.remoteJid,
+          fromMe:     r.reaction?.key?.fromMe ?? false,
+          reactorJid: r.key?.participant ?? r.key?.remoteJid, // quem reagiu
           ts:         r.reaction?.senderTimestampMs,
         },
         timestamp: new Date().toISOString(),
