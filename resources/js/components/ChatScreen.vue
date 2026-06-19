@@ -226,7 +226,7 @@ export default {
       echoChannel: null,
       pendingFile: null,        // File API: arquivo escolhido pra enviar
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
-      unreadCounts: {},         // { [jid]: number } — badges de não lidos
+      unreadCounts: JSON.parse(localStorage.getItem(`wp_unread_${document.getElementById('wa-chat-app')?.dataset.instanceSlug}`) || '{}'),
       flashingJids: {},         // { [jid]: true } — itens pulsando (reativo via spread)
       audioBlocked: false,      // true enquanto o browser não permitiu áudio
       audioEl: null,            // elemento reutilizado (desbloqueio persiste no mesmo objeto)
@@ -269,6 +269,15 @@ export default {
     },
     apiBase() {
       return `/api/whatsapp/instances/${this.instanceSlug}`;
+    },
+  },
+
+  watch: {
+    unreadCounts: {
+      deep: true,
+      handler(val) {
+        localStorage.setItem(`wp_unread_${this.instanceSlug}`, JSON.stringify(val));
+      },
     },
   },
 
