@@ -28,6 +28,13 @@ class WhatsAppController extends Controller
         ]);
 
         if ($data['event'] === 'message') {
+            $instance = Instance::firstOrNew(['slug' => $data['instance_id']]);
+            if ($instance->exists) {
+                broadcast(new \App\Events\MessageReceived(
+                    $data['instance_id'],
+                    $data['payload'] ?? []
+                ));
+            }
             Log::info('Mensagem recebida do WhatsApp', [
                 'instance_id' => $data['instance_id'],
                 'payload'     => $data['payload'] ?? null,

@@ -13,14 +13,17 @@ axios.defaults.withCredentials = true;
 
 window.Pusher = Pusher;
 
+// O WebSocket passa pelo proxy nginx (mesmo host/porta da página).
+// Não usar localhost:8080 direto — o browser bloqueia WS em página HTTPS.
+const _isTLS = window.location.protocol === 'https:';
 window.Echo = new Echo({
     broadcaster: 'reverb',
     key: import.meta.env.VITE_REVERB_APP_KEY,
-    wsHost: import.meta.env.VITE_REVERB_HOST ?? window.location.hostname,
-    wsPort: import.meta.env.VITE_REVERB_PORT ?? 8080,
-    wssPort: import.meta.env.VITE_REVERB_PORT ?? 8080,
-    forceTLS: false,
-    enabledTransports: ['ws', 'wss'],
+    wsHost: window.location.hostname,
+    wsPort: 80,
+    wssPort: 443,
+    forceTLS: _isTLS,
+    enabledTransports: _isTLS ? ['wss'] : ['ws'],
     disableStats: true,
 });
 

@@ -192,7 +192,6 @@
 <script>
 import axios from 'axios';
 
-const POLL_MS = 3000;
 
 export default {
   name: 'ChatScreen',
@@ -216,6 +215,7 @@ export default {
       loadingMessages: false,
       sending: false,
       pollHandle: null,
+      echoChannel: null,
       pendingFile: null,        // File API: arquivo escolhido pra enviar
       filePreviewUrl: null,     // URL.createObjectURL — só pra imagens
     };
@@ -262,17 +262,61 @@ export default {
 
   mounted() {
     this.refreshAll();
-    this.pollHandle = setInterval(this.refreshAll, POLL_MS);
+    this.connectEcho();
+    this.pollHandle = setInterval(this.fetchChats, 30_000);
   },
 
-  beforeUnmount() { this.stopPolling(); this.clearFile(); },
-  beforeDestroy() { this.stopPolling(); this.clearFile(); },
+  beforeUnmount() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
+  beforeDestroy() { this.disconnectEcho(); this.stopPolling(); this.clearFile(); },
 
   methods: {
     stopPolling() {
       if (this.pollHandle) {
         clearInterval(this.pollHandle);
         this.pollHandle = null;
+      }
+    },
+
+    connectEcho() {
+      if (!window.Echo || !this.instanceSlug) {
+        // Fallback: polling normal se Echo não disponível
+        return;
+      }
+      this.echoChannel = window.Echo.channel(`instance.${this.instanceSlug}`)
+        .listen('.MessageReceived', (data) => {
+          const payload = data.payload;
+          if (!payload) return;
+
+          // Atualiza a lista de chats (novo contato pode aparecer)
+          this.fetchChats();
+
+          new Audio('/sounds/alarme.mp3').play().catch(() => {});
+
+          // Se a conversa ativa for o remetente/destinatário, adiciona a mensagem
+          const jid = payload.key?.remoteJid;
+          if (jid && jid === this.activeJid) {
+            // Verifica se a mensagem já existe (evita duplicata)
+            const exists = this.messages.some(m => m.whatsapp_message_id === payload.key?.id);
+            if (!exists) {
+              this.messages = [...this.messages, payload];
+              this.$nextTick(() => this.scrollToBottom());
+            }
+          }
+        })
+        .listen('.InstanceUpdated', (data) => {
+          // Status do WhatsApp mudou (ex: desconectou)
+          if (data.status) this.status = data.status;
+        })
+        .error(() => {
+          // Fallback silencioso — polling continua
+          console.warn('Echo error no ChatScreen, usando polling');
+        });
+    },
+
+    disconnectEcho() {
+      if (this.echoChannel) {
+        window.Echo.leaveChannel(`instance.${this.instanceSlug}`);
+        this.echoChannel = null;
       }
     },
 
