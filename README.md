@@ -1,7 +1,22 @@
-# wp-gorila — Piloto interno da API WhatsApp da Gorila
+# wp-gorila — Plataforma WhatsApp da Gorila Software House
 
-API piloto pra automatizar envios e recebimentos no WhatsApp usando a biblioteca
-open-source **Baileys**. Projeto interno, baixa escala, foco em "configurar e esquecer".
+Solução completa para automação de envio e recebimento de mensagens WhatsApp, desenvolvida
+internamente pela **Gorila Software House**. Construída sobre tecnologias modernas e open-source:
+
+| Componente | Tecnologia | Papel |
+|---|---|---|
+| Protocolo WhatsApp | [`@whiskeysockets/baileys`](https://github.com/WhiskeySockets/Baileys) | Biblioteca Node.js que implementa o protocolo WebSocket do WhatsApp Web, sem depender de API oficial |
+| Backend | **Laravel 13** (PHP 8.3) | API REST, persistência, autenticação e orquestração dos eventos |
+| Banco de dados | **PostgreSQL 16** | Armazenamento de instâncias, mensagens e configurações |
+| WebSocket | **Laravel Reverb** | Entrega de eventos em tempo real para o frontend (nova mensagem, reações, status) |
+| Frontend | **Vue 3** | Interface web estilo WhatsApp Web — lista de conversas, chat, painel de webhooks |
+| Infra | **Docker + Laradock** | Nginx, PHP-FPM, Postgres e Reverb rodando em containers |
+
+O sistema gerencia **múltiplas instâncias WhatsApp simultâneas** (uma por projeto/cliente), cada
+uma com sessão independente. Expõe API REST para integração com sistemas externos e um painel de
+webhooks para encaminhar eventos em tempo real para qualquer URL configurada.
+
+> Projeto interno, baixa escala, foco em estabilidade e facilidade de operação.
 
 ## Arquitetura
 

@@ -232,6 +232,14 @@ async function startBaileys(slug) {
 
   instance.sock.ev.on('creds.update', saveCreds);
 
+  // DEBUG TEMPORÁRIO
+  instance.sock.ev.on('messages.update', (updates) => {
+    logger.info({ slug: instance.slug, count: updates.length, sample: JSON.stringify(updates[0]) }, 'baileys:messages.update');
+  });
+  instance.sock.ev.on('messages.reaction', (reactions) => {
+    logger.info({ slug: instance.slug, count: reactions.length, sample: JSON.stringify(reactions[0]) }, 'baileys:messages.reaction');
+  });
+
   instance.sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
@@ -276,10 +284,13 @@ async function startBaileys(slug) {
   });
 
   instance.sock.ev.on('messages.upsert', (m) => {
+    logger.info({ slug: instance.slug, type: m.type, count: m.messages?.length }, 'upsert:begin');
     if (m.type !== 'notify' && m.type !== 'append') return;
 
     if (Array.isArray(m.messages)) {
       for (const raw of m.messages) {
+        logger.info({ slug: instance.slug, msgKeys: Object.keys(raw?.message || {}), key: raw?.key?.id }, 'upsert:msg-keys');
+
         // Reações chegam via messages.upsert como reactionMessage
         const reaction = raw?.message?.reactionMessage;
         if (reaction) {
