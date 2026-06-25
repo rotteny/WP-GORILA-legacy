@@ -31,3 +31,8 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# tests/api smoke tests
+/tests/api/.env
+/tests/api/.cookies
+/tests/api/fixtures/

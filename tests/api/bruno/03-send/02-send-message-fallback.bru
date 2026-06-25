@@ -1,0 +1,34 @@
+meta {
+  name: 02 - POST /send-message (fallback)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/whatsapp/send-message
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+body:json {
+  {
+    "number": "{{destNumber}}",
+    "message": "{{testTag}} send-message fallback"
+  }
+}
+
+tests {
+  test("status 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("ok=true", function () {
+    expect(res.getBody().ok).to.equal(true);
+  });
+  test("instance usada na resposta", function () {
+    expect(res.getBody().instance).to.be.a("string");
+  });
+}

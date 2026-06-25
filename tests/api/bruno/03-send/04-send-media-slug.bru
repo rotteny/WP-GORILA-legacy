@@ -1,0 +1,30 @@
+meta {
+  name: 04 - POST /instances/{slug}/send-media (com arquivo)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/send-media
+  body: multipartForm
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+body:multipart-form {
+  number: {{destNumber}}
+  caption: {{testTag}} send-media com slug
+  file: @file(../../fixtures/test.png)
+}
+
+tests {
+  test("status 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("ok=true", function () {
+    expect(res.getBody().ok).to.equal(true);
+  });
+}

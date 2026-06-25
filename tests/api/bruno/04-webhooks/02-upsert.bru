@@ -1,0 +1,29 @@
+meta {
+  name: 02 - PUT /instances/{slug}/webhooks (configurar)
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/webhooks
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+body:json {
+  {
+    "event": "message",
+    "url": "https://webhook.site/teste-bruno",
+    "active": true
+  }
+}
+
+tests {
+  test("status 2xx", function () {
+    expect(res.getStatus()).to.be.within(200, 299);
+  });
+}

@@ -1,0 +1,27 @@
+meta {
+  name: 01 - POST login
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/login
+  body: formUrlEncoded
+  auth: none
+}
+
+headers {
+  X-Requested-With: XMLHttpRequest
+}
+
+body:form-urlencoded {
+  _token: {{csrfToken}}
+  email: {{loginEmail}}
+  password: {{loginPassword}}
+}
+
+tests {
+  test("redireciona após login (302)", function () {
+    expect([302, 303]).to.include(res.getStatus());
+  });
+}

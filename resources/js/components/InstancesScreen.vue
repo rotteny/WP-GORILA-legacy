@@ -7,15 +7,32 @@
           <h1 class="ip-title">Projetos</h1>
           <p class="ip-subtitle">Cada projeto representa um número WhatsApp conectado.</p>
         </div>
-        <button
-          v-if="instances.length > 0"
-          class="ip-btn ip-btn--primary"
-          type="button"
-          @click="openModal"
-        >
-          + Novo projeto
-        </button>
+        <div class="ip-header__actions">
+          <button
+            v-if="instances.length > 0"
+            class="ip-btn ip-btn--ghost"
+            type="button"
+            @click="showApiKeys = true"
+            title="Gerenciar chaves de API pra integrações externas"
+          >
+            🔑 Chaves de API
+          </button>
+          <button
+            v-if="instances.length > 0"
+            class="ip-btn ip-btn--primary"
+            type="button"
+            @click="openModal"
+          >
+            + Novo projeto
+          </button>
+        </div>
       </header>
+
+      <ApiKeysModal
+        :show="showApiKeys"
+        :instances="instances"
+        @close="showApiKeys = false"
+      />
 
       <!-- LOADING (1ª carga) -->
       <div v-if="loading && instances.length === 0" class="ip-empty">
@@ -152,6 +169,7 @@
 
 <script>
 import axios from 'axios';
+import ApiKeysModal from './ApiKeysModal.vue';
 
 const POLL_MS = 5000;
 const SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,30}$/;
@@ -159,12 +177,16 @@ const SLUG_REGEX = /^[a-z0-9][a-z0-9_-]{0,30}$/;
 export default {
   name: 'InstancesScreen',
 
+  components: { ApiKeysModal },
+
   data() {
     return {
       instances: [],
       loading: false,
       pollHandle: null,
       openMenuId: null,
+
+      showApiKeys: false,
 
       showModal: false,
       creating: false,
@@ -421,6 +443,11 @@ export default {
   flex-wrap: wrap;
 }
 .ip-header__text { min-width: 0; }
+.ip-header__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .ip-title {
   margin: 0;
   font-size: 28px;

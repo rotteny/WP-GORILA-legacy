@@ -1,0 +1,27 @@
+meta {
+  name: 03 - send-message sem 'message' (erro 422)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/send-message
+  body: json
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+body:json {
+  {
+    "number": "{{destNumber}}"
+  }
+}
+
+tests {
+  test("422 validation error", function () {
+    expect(res.getStatus()).to.equal(422);
+  });
+}

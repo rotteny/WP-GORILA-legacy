@@ -257,6 +257,7 @@ export default {
       audioBuffer: null,
       reactions: {},  // { [messageId]: { [emoji]: count } }
       showWebhooks: false,
+      contactNames: {},  // { [jid]: sender_name } — cache persistente do nome do contato
     };
   },
 
@@ -356,6 +357,9 @@ export default {
           const payload = data.payload;
           if (!payload) return;
 
+          // Atualiza o cache de nome do contato em tempo real
+          this.rememberContactNames([payload]);
+
           this._playAlarm();
 
           // Captura timestamps antes de recarregar para detectar qual chat mudou
@@ -452,6 +456,8 @@ export default {
       try {
         const { data } = await axios.get(`${this.apiBase}/chats`);
         this.chats = data.chats || [];
+        // Popula cache de nomes a partir do last_message de cada conversa
+        this.rememberContactNames(this.chats.map(c => c.last_message).filter(Boolean));
       } catch (e) {
         console.error('Erro ao carregar conversas:', e);
       } finally {
@@ -464,6 +470,8 @@ export default {
       try {
         const { data } = await axios.get(`${this.apiBase}/chats/${encodeURIComponent(jid)}/messages`);
         this.messages = data.messages || [];
+        // Popula cache de nomes a partir do histórico recém-carregado
+        this.rememberContactNames(this.messages);
         this.$nextTick(() => this.scrollToBottom());
       } catch (e) {
         console.error('Erro ao carregar mensagens:', e);
@@ -577,12 +585,30 @@ export default {
 
     chatLabel(c) {
       if (!c?.jid) return '(sem id)';
-      // Usa sender_name da última mensagem recebida se disponível
+      // 1) cache de nome do contato (sobrevive a respostas suas)
+      if (this.contactNames[c.jid]) return this.contactNames[c.jid];
+      // 2) última mensagem recebida (caso o cache ainda não esteja populado)
       if (c.last_message?.sender_name && !c.last_message?.from_me) {
         return c.last_message.sender_name;
       }
       const num = c.jid.split('@')[0].split('-')[0];
       return num;
+    },
+
+    rememberContactNames(messages) {
+      if (!Array.isArray(messages) || !messages.length) return;
+      const next = { ...this.contactNames };
+      let changed = false;
+      for (const m of messages) {
+        const jid = m.from || m.chat_jid;
+        if (!jid) continue;
+        if (m.from_me) continue;
+        if (!m.sender_name) continue;
+        if (next[jid] === m.sender_name) continue;
+        next[jid] = m.sender_name;
+        changed = true;
+      }
+      if (changed) this.contactNames = next;
     },
 
     chatInitial(c) {

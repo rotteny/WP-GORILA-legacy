@@ -1,0 +1,21 @@
+meta {
+  name: 03 - DELETE /instances/{slug}/webhooks/{event}
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/webhooks/message
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+tests {
+  test("status 2xx", function () {
+    expect(res.getStatus()).to.be.within(200, 299);
+  });
+}

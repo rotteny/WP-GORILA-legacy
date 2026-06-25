@@ -1,0 +1,21 @@
+meta {
+  name: 02 - POST logout
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/logout
+  body: formUrlEncoded
+  auth: none
+}
+
+body:form-urlencoded {
+  _token: {{csrfToken}}
+}
+
+tests {
+  test("redireciona após logout", function () {
+    expect([200, 302, 303]).to.include(res.getStatus());
+  });
+}

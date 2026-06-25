@@ -1,0 +1,24 @@
+meta {
+  name: 01 - GET /instances/{slug}/chats (listar conversas)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/chats
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+tests {
+  test("status 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("chats é array", function () {
+    expect(res.getBody().chats).to.be.an("array");
+  });
+}

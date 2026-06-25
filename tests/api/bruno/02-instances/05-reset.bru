@@ -1,0 +1,21 @@
+meta {
+  name: 05 - POST /instances/{slug}/reset (gerar novo QR)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/whatsapp/instances/{{slug}}/reset
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}
+
+tests {
+  test("status 200/202", function () {
+    expect([200, 202]).to.include(res.getStatus());
+  });
+}
