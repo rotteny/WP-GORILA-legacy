@@ -69,6 +69,5 @@ jobs:
               php artisan view:cache
               php artisan queue:restart
             "
-            # Reinicia whatsapp-service via PM2
-            docker exec laradock-workspace-1 bash -c \
-              'source /home/laradock/.nvm/nvm.sh && pm2 restart wp-gorila-whatsapp'
+            # Reinicia o container do whatsapp-service
+            docker restart whatsapp-service
