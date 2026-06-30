@@ -20,6 +20,7 @@ class ApiKeyController extends Controller
             ->orderByDesc('created_at')
             ->get([
                 'id',
+                'project_id',
                 'instance_slug',
                 'name',
                 'key_prefix',
@@ -39,15 +40,25 @@ class ApiKeyController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        // A chave é escopada a UMA instância OU a UM projeto (exatamente um).
         $data = $request->validate([
-            'instance_slug' => ['required', 'string', Rule::exists('instances', 'slug')],
+            'instance_slug' => ['required_without:project_id', 'nullable', 'string', Rule::exists('instances', 'slug')],
+            'project_id'    => ['required_without:instance_slug', 'nullable', 'integer', Rule::exists('projects', 'id')],
             'name'          => ['required', 'string', 'max:100'],
         ]);
+
+        if (!empty($data['instance_slug']) && !empty($data['project_id'])) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'Informe instance_slug OU project_id, não os dois.',
+            ], 422);
+        }
 
         $generated = ApiKey::generate();
 
         $apiKey = ApiKey::create([
-            'instance_slug' => $data['instance_slug'],
+            'instance_slug' => $data['instance_slug'] ?? null,
+            'project_id'    => $data['project_id'] ?? null,
             'name'          => $data['name'],
             'key_prefix'    => $generated['prefix'],
             'key_hash'      => $generated['hash'],
@@ -56,6 +67,7 @@ class ApiKeyController extends Controller
         return response()->json([
             'id'            => $apiKey->id,
             'instance_slug' => $apiKey->instance_slug,
+            'project_id'    => $apiKey->project_id,
             'name'          => $apiKey->name,
             'key_prefix'    => $apiKey->key_prefix,
             'plaintext'     => $generated['plaintext'],   // ⚠️ Só aparece aqui.

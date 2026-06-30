@@ -4,7 +4,7 @@
     <aside class="wa-side">
       <header class="wa-side__header">
         <div class="wa-side__header-top">
-          <a href="/" class="wa-back">← Projetos</a>
+          <a :href="backHref" class="wa-back">← Voltar</a>
           <h2>Conversas</h2>
           <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
           <button class="wa-tab-btn" :class="{ 'wa-tab-btn--active': showWebhooks }" @click="showWebhooks = !showWebhooks" title="Configurar webhooks">
@@ -278,6 +278,10 @@ export default {
         'wa-side__status--warn': ['PENDING_QR', 'RECONNECTING'].includes(this.status),
         'wa-side__status--err': this.status === 'LOGGED_OUT',
       };
+    },
+    backHref() {
+      const back = new URLSearchParams(window.location.search).get('back');
+      return back && back.startsWith('/') ? back : '/';
     },
     activeChatType() {
       return this.chats.find((c) => c.jid === this.activeJid)?.chat_type || 'unknown';

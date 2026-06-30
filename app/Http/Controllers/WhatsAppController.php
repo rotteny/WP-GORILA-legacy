@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Events\InstanceUpdated;
 use App\Models\Instance;
 use App\Models\Message;
+use App\Models\Project;
+use App\Services\ProjectFailoverService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -31,7 +33,7 @@ class WhatsAppController extends Controller
         if ($data['event'] === 'message') {
             $instance = Instance::firstOrNew(['slug' => $data['instance_id']]);
             if ($instance->exists) {
-                broadcast(new \App\Events\MessageReceived(
+                $this->safeBroadcast(new \App\Events\MessageReceived(
                     $data['instance_id'],
                     $data['payload'] ?? []
                 ));
@@ -116,7 +118,7 @@ class WhatsAppController extends Controller
         if ($data['event'] === 'message_deleted') {
             $instance = Instance::firstWhere('slug', $data['instance_id']);
             if ($instance) {
-                broadcast(new \App\Events\MessageDeleted(
+                $this->safeBroadcast(new \App\Events\MessageDeleted(
                     $data['instance_id'],
                     $data['payload'] ?? []
                 ));
@@ -129,7 +131,7 @@ class WhatsAppController extends Controller
         if ($data['event'] === 'message_reaction') {
             $instance = Instance::firstWhere('slug', $data['instance_id']);
             if ($instance) {
-                broadcast(new \App\Events\MessageReaction(
+                $this->safeBroadcast(new \App\Events\MessageReaction(
                     $data['instance_id'],
                     $data['payload'] ?? []
                 ));
@@ -154,11 +156,44 @@ class WhatsAppController extends Controller
         }
         $instance->fill($attributes)->save();
 
-        broadcast(new InstanceUpdated($instance));
+        $this->safeBroadcast(new InstanceUpdated($instance));
         app(\App\Services\WebhookForwarderService::class)
             ->forward('connection', $instance, $data['payload'] ?? []);
 
+        // Gestão do telefone ativo do projeto:
+        if ($instance->project_id) {
+            $project = $instance->project;
+
+            // Failover: se o ativo caiu (LOGGED_OUT), promove o próximo CONNECTED e avisa.
+            if ($project && $instance->status === 'LOGGED_OUT' && $project->active_instance_id === $instance->id) {
+                app(ProjectFailoverService::class)->failover($project, $instance, 'logged_out');
+            }
+
+            // Primeiro telefone a conectar vira o ativo automaticamente.
+            if ($project && $instance->status === 'CONNECTED' && $project->active_instance_id === null) {
+                app(ProjectFailoverService::class)->promote($project, $instance);
+            }
+        }
+
         return response()->json(['ok' => true, 'instance' => $instance]);
+    }
+
+    /**
+     * Dispara um broadcast (WebSocket/Reverb) de forma best-effort: se o servidor de
+     * broadcast estiver fora do ar, registra e segue — a entrega do webhook do Node
+     * (status, failover, auto-ativo, persistência de mensagem) NÃO pode falhar por causa
+     * de uma notificação de UI ao vivo.
+     */
+    private function safeBroadcast(object $event): void
+    {
+        try {
+            broadcast($event);
+        } catch (\Throwable $e) {
+            Log::warning('Broadcast falhou (seguindo em frente)', [
+                'event' => $event::class,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function getStatus(Instance $instance): JsonResponse
@@ -230,6 +265,158 @@ class WhatsAppController extends Controller
         $result   = $this->_doSendMedia($instance, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
 
         return response()->json($result['data'], $result['ok'] ? 200 : 502);
+    }
+
+    /**
+     * Envia uma mensagem "pelo projeto": resolve o telefone ativo atual e envia por ele.
+     * O consumidor (ex.: TikBot) não precisa saber qual número físico está ativo — o
+     * failover (tik1 -> tik2) fica transparente.
+     */
+    public function sendMessageProject(Request $request, Project $project): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'message' => 'required|string',
+        ]);
+
+        $instance = $this->resolveActiveInstance($project);
+        if ($instance instanceof JsonResponse) {
+            return $instance;
+        }
+
+        $result = $this->_doSendMessage($instance, $data);
+
+        return response()->json($result['data'], $result['ok'] ? 200 : 502);
+    }
+
+    public function sendMediaProject(Request $request, Project $project): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'caption' => 'nullable|string|max:1024',
+            'file'    => 'required|file|max:25600',
+        ]);
+
+        $instance = $this->resolveActiveInstance($project);
+        if ($instance instanceof JsonResponse) {
+            return $instance;
+        }
+
+        $file     = $request->file('file');
+        $contents = file_get_contents($file->getRealPath());
+        $result   = $this->_doSendMedia($instance, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
+
+        return response()->json($result['data'], $result['ok'] ? 200 : 502);
+    }
+
+    /**
+     * Resolve o telefone ativo do projeto pronto para enviar. Se o ativo não estiver
+     * CONNECTED, tenta failover (promove o próximo CONNECTED por prioridade) antes de
+     * desistir. Retorna a Instance pronta, ou um JsonResponse 409 se não houver telefone.
+     *
+     * @return Instance|JsonResponse
+     */
+    private function resolveActiveInstance(Project $project)
+    {
+        $instance = $project->activeInstance;
+
+        if (!$instance || $instance->status !== 'CONNECTED') {
+            $instance = app(ProjectFailoverService::class)->failover($project, $instance, 'send_time');
+        }
+
+        if (!$instance) {
+            return response()->json([
+                'ok'      => false,
+                'error'   => "Projeto '{$project->slug}' não tem telefone conectado disponível.",
+                'project' => $project->slug,
+            ], 409);
+        }
+
+        return $instance;
+    }
+
+    /**
+     * Envio "pela chave": a própria API key é o alias do destino. Não precisa pôr
+     * instância nem projeto na URL — o escopo da chave decide:
+     *   - chave de PROJETO  -> envia pelo telefone ativo do projeto (com failover);
+     *   - chave de INSTÂNCIA -> envia por aquela instância.
+     */
+    public function sendByKey(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'message' => 'required|string',
+        ]);
+
+        $target = $this->resolveTargetFromKey($request);
+        if ($target instanceof JsonResponse) {
+            return $target;
+        }
+
+        $result = $this->_doSendMessage($target, $data);
+
+        return response()->json($result['data'], $result['ok'] ? 200 : 502);
+    }
+
+    public function sendMediaByKey(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'number'  => 'required_without:jid|string',
+            'jid'     => 'required_without:number|string',
+            'caption' => 'nullable|string|max:1024',
+            'file'    => 'required|file|max:25600',
+        ]);
+
+        $target = $this->resolveTargetFromKey($request);
+        if ($target instanceof JsonResponse) {
+            return $target;
+        }
+
+        $file     = $request->file('file');
+        $contents = file_get_contents($file->getRealPath());
+        $result   = $this->_doSendMedia($target, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
+
+        return response()->json($result['data'], $result['ok'] ? 200 : 502);
+    }
+
+    /**
+     * Resolve o telefone de destino a partir do escopo da API key autenticada.
+     *
+     * @return Instance|JsonResponse Instância pronta para enviar, ou resposta de erro.
+     */
+    private function resolveTargetFromKey(Request $request)
+    {
+        $apiKey = $request->attributes->get('api_key');
+
+        if (!$apiKey) {
+            return response()->json(['ok' => false, 'error' => 'Chave de API ausente.'], 401);
+        }
+
+        // Chave de projeto: resolve o telefone ativo (tentando failover se preciso).
+        if ($apiKey->project_id) {
+            $project = Project::find($apiKey->project_id);
+            if (!$project) {
+                return response()->json(['ok' => false, 'error' => 'Projeto da chave não encontrado.'], 404);
+            }
+            return $this->resolveActiveInstance($project);
+        }
+
+        // Chave de instância: envia por aquela instância (precisa estar conectada).
+        if ($apiKey->instance_slug) {
+            $instance = Instance::where('slug', $apiKey->instance_slug)->first();
+            if (!$instance) {
+                return response()->json(['ok' => false, 'error' => 'Instância da chave não encontrada.'], 404);
+            }
+            if ($instance->status !== 'CONNECTED') {
+                return response()->json(['ok' => false, 'error' => 'instância não conectada', 'status' => $instance->status], 409);
+            }
+            return $instance;
+        }
+
+        return response()->json(['ok' => false, 'error' => 'Chave de API sem escopo (sem projeto nem instância).'], 422);
     }
 
     public function sendMessageFallback(Request $request): JsonResponse

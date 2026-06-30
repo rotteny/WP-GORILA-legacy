@@ -15,8 +15,10 @@ use Symfony\Component\HttpFoundation\Response;
  *   - Header:  X-API-Key: wpg_xxx...
  *
  * A chave é verificada contra a tabela `api_keys` (key_prefix + hash bcrypt).
- * Além disso, a chave precisa estar vinculada à instância referenciada na rota
- * (route param `{instance}`), pra evitar usar chave do projeto A no projeto B.
+ * Além disso, a chave precisa estar vinculada ao escopo referenciado na rota:
+ *   - rota com `{instance}`: a chave precisa ser daquela instância (instance_slug);
+ *   - rota com `{project}`:  a chave precisa ser daquele projeto (project_id).
+ * Isso evita usar a chave do projeto/instância A para falar com o B.
  */
 class ApiKeyAuth
 {
@@ -48,6 +50,17 @@ class ApiKeyAuth
 
         if ($routeSlug && $apiKey->instance_slug !== $routeSlug) {
             return $this->forbidden("Chave de API não autorizada para a instância '{$routeSlug}'.");
+        }
+
+        // Confere o escopo: chave precisa pertencer ao projeto da rota.
+        $routeProject = $request->route('project');
+        if ($routeProject) {
+            $projectId = is_object($routeProject) ? $routeProject->id : null;
+            $projectSlug = is_object($routeProject) ? $routeProject->slug : (string) $routeProject;
+
+            if ($apiKey->project_id === null || $apiKey->project_id !== $projectId) {
+                return $this->forbidden("Chave de API não autorizada para o projeto '{$projectSlug}'.");
+            }
         }
 
         // Sucesso: atualiza last_used_at e injeta a chave no request.
