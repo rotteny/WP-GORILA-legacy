@@ -6,9 +6,12 @@
       <header class="ak-header">
         <div>
           <h2 id="ak-title" class="ak-title">Chaves de API</h2>
-          <p class="ak-subtitle">
-            Use estas chaves em integrações externas (acca, n8n, etc).
-            Cada chave fica amarrada a uma instância.
+          <p v-if="projectMode" class="ak-subtitle">
+            Chaves do projeto <strong>{{ project.name }}</strong>. Quem usar a chave envia
+            pelo telefone <strong>ativo</strong> do projeto — o failover é transparente.
+          </p>
+          <p v-else class="ak-subtitle">
+            Use estas chaves em integrações externas. Cada chave fica amarrada a uma instância.
           </p>
         </div>
         <button
@@ -31,7 +34,7 @@
           <thead>
             <tr>
               <th>Chave</th>
-              <th>Instância</th>
+              <th>{{ projectMode ? 'Escopo' : 'Instância' }}</th>
               <th>Criada em</th>
               <th>Último uso</th>
               <th>Status</th>
@@ -41,7 +44,7 @@
           <tbody>
             <tr v-for="k in keys" :key="k.id" :class="{ 'ak-row--revoked': k.revoked_at }">
               <td><code>{{ k.key_prefix }}…</code><div class="ak-name">{{ k.name }}</div></td>
-              <td>{{ k.instance_slug }}</td>
+              <td>{{ projectMode ? ('projeto: ' + project.slug) : k.instance_slug }}</td>
               <td>{{ formatDate(k.created_at) }}</td>
               <td>{{ k.last_used_at ? formatDate(k.last_used_at) : '—' }}</td>
               <td>
@@ -68,7 +71,7 @@
           <h3 class="ak-form__title">Criar nova chave de API</h3>
           <p v-if="createError" class="ak-error">{{ createError }}</p>
 
-          <label class="ak-field">
+          <label v-if="!projectMode" class="ak-field">
             <span>Instância</span>
             <select v-model="form.instance_slug" :disabled="creating">
               <option value="" disabled>Selecione…</option>
@@ -116,7 +119,11 @@
           </div>
           <details class="ak-reveal__example">
             <summary>Como usar essa chave em outro sistema</summary>
-            <pre>curl -X POST {{ baseUrl }}/api/v1/whatsapp/instances/{{ revealedKey.instance_slug }}/send-message \
+            <pre v-if="projectMode">curl -X POST {{ baseUrl }}/api/v1/whatsapp/projects/{{ project.slug }}/send-message \
+  -H "Authorization: Bearer {{ revealedKey.plaintext }}" \
+  -H "Content-Type: application/json" \
+  -d '{"number":"5511999999999","message":"olá"}'</pre>
+            <pre v-else>curl -X POST {{ baseUrl }}/api/v1/whatsapp/instances/{{ revealedKey.instance_slug }}/send-message \
   -H "Authorization: Bearer {{ revealedKey.plaintext }}" \
   -H "Content-Type: application/json" \
   -d '{"number":"5511999999999","message":"olá"}'</pre>
@@ -144,6 +151,8 @@ export default {
   props: {
     show: { type: Boolean, required: true },
     instances: { type: Array, default: () => [] },
+    // Quando presente, o modal opera em "modo projeto": chaves escopadas ao projeto.
+    project: { type: Object, default: null },
   },
 
   emits: ['close'],
@@ -164,8 +173,12 @@ export default {
   },
 
   computed: {
+    projectMode() {
+      return !!this.project;
+    },
     canSubmit() {
-      return this.form.instance_slug && this.form.name.trim().length > 0;
+      const hasScope = this.projectMode ? true : !!this.form.instance_slug;
+      return hasScope && this.form.name.trim().length > 0;
     },
   },
 
@@ -180,7 +193,10 @@ export default {
       this.loading = true;
       try {
         const { data } = await axios.get('/api/whatsapp/api-keys');
-        this.keys = data;
+        // Em modo projeto, mostra só as chaves daquele projeto.
+        this.keys = this.projectMode
+          ? data.filter((k) => k.project_id === this.project.id)
+          : data;
       } catch (e) {
         console.error('Erro ao carregar chaves:', e);
       } finally {
@@ -203,11 +219,15 @@ export default {
       this.creating = true;
       this.createError = '';
       try {
-        const { data } = await axios.post('/api/whatsapp/api-keys', this.form);
+        const payload = this.projectMode
+          ? { project_id: this.project.id, name: this.form.name.trim() }
+          : { instance_slug: this.form.instance_slug, name: this.form.name.trim() };
+        const { data } = await axios.post('/api/whatsapp/api-keys', payload);
         this.revealedKey = data;
         this.showCreateForm = false;
       } catch (e) {
-        this.createError = e?.response?.data?.message
+        this.createError = e?.response?.data?.error
+          || e?.response?.data?.message
           || 'Falha ao criar a chave. Tente novamente.';
       } finally {
         this.creating = false;

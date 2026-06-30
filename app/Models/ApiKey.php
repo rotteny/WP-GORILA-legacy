@@ -12,6 +12,7 @@ class ApiKey extends Model
     use HasFactory;
 
     protected $fillable = [
+        'project_id',
         'instance_slug',
         'name',
         'key_prefix',
@@ -30,6 +31,14 @@ class ApiKey extends Model
     public function instance(): BelongsTo
     {
         return $this->belongsTo(Instance::class, 'instance_slug', 'slug');
+    }
+
+    /**
+     * Projeto a que a chave está escopada (quando é uma chave de projeto).
+     */
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
     }
 
     /**

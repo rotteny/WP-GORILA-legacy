@@ -1,7 +1,7 @@
 <template>
   <div class="wa-connect">
     <header class="wa-connect__header">
-      <a href="/" class="wa-back">← Projetos</a>
+      <a :href="backHref" class="wa-back">← Voltar</a>
       <h2 class="wa-connect__title">
         Conexão WhatsApp<span v-if="projectName"> — {{ projectName }}</span>
       </h2>
@@ -18,7 +18,7 @@
         Última atualização: {{ formatDate(lastEventAt) }}
       </p>
       <p style="margin-top:1rem;">
-        <a :href="`/p/${instanceSlug}/chat`" class="wa-link">Abrir conversas →</a>
+        <a :href="`/p/${instanceSlug}/chat${backSuffix}`" class="wa-link">Abrir conversas →</a>
       </p>
     </div>
 
@@ -87,6 +87,16 @@ export default {
   },
 
   computed: {
+    // Destino do "voltar": usa ?back=/caminho-interno se veio de um projeto; senão a home.
+    backHref() {
+      const back = new URLSearchParams(window.location.search).get('back');
+      return back && back.startsWith('/') ? back : '/';
+    },
+    // Repassa o ?back ao navegar pro chat, pra preservar o contexto do projeto.
+    backSuffix() {
+      const back = new URLSearchParams(window.location.search).get('back');
+      return back && back.startsWith('/') ? `?back=${encodeURIComponent(back)}` : '';
+    },
     hasQr() {
       return Boolean(this.qrCode) && this.status !== 'CONNECTED';
     },
