@@ -517,6 +517,34 @@ app.post('/instances/:id/reset', attachInstance, async (req, res) => {
 
 // ----- SEND ------------------------------------------------------------------
 
+// Resolve o JID de destino. Se veio `jid` explícito, usa direto. Senão, PERGUNTA ao
+// WhatsApp (onWhatsApp) qual o JID real daquele número — isso cobre os contatos
+// endereçados por LID e a ambiguidade do 9º dígito dos celulares BR. Enviar pro
+// `numero@s.whatsapp.net` cru (sem resolver) costuma "sair" mas não ser entregue.
+// Lança erro 422 se o número não estiver no WhatsApp (em vez de enviar pro nada).
+async function resolveTarget(instance, jid, number) {
+  if (jid) return jid;
+
+  const cleaned = String(number).replace(/\D/g, '');
+
+  let results;
+  try {
+    results = await instance.sock.onWhatsApp(cleaned);
+  } catch (e) {
+    logger.warn({ slug: instance.slug, number: cleaned, err: e.message }, 'onWhatsApp falhou; usando JID de número puro');
+    return `${cleaned}@s.whatsapp.net`;
+  }
+
+  const hit = results?.[0];
+  if (!hit?.exists || !hit?.jid) {
+    const err = new Error(`número ${cleaned} não está no WhatsApp`);
+    err.statusCode = 422;
+    throw err;
+  }
+
+  return hit.jid;
+}
+
 app.post('/instances/:id/send-message', attachInstance, requireConnected, async (req, res) => {
   const instance = req.instance;
   const { jid, number, message } = req.body || {};
@@ -527,14 +555,13 @@ app.post('/instances/:id/send-message', attachInstance, requireConnected, async 
       .json({ ok: false, error: 'informe "message" e "jid" ou "number"' });
   }
 
-  const target = jid || `${String(number).replace(/\D/g, '')}@s.whatsapp.net`;
-
   try {
+    const target = await resolveTarget(instance, jid, number);
     const result = await instance.sock.sendMessage(target, { text: String(message) });
     res.json({ ok: true, id: result?.key?.id ?? null, to: target });
   } catch (err) {
     logger.error({ slug: instance.slug, err: err.message }, 'falha ao enviar mensagem');
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(err.statusCode || 500).json({ ok: false, error: err.message });
   }
 });
 
@@ -550,7 +577,6 @@ app.post('/instances/:id/send-media', attachInstance, requireConnected, upload.s
     return res.status(422).json({ ok: false, error: 'informe "jid" ou "number"' });
   }
 
-  const target = jid || `${String(number).replace(/\D/g, '')}@s.whatsapp.net`;
   const buffer = req.file.buffer;
   const mime = req.file.mimetype || 'application/octet-stream';
   const filename = req.file.originalname || 'arquivo';
@@ -577,6 +603,7 @@ app.post('/instances/:id/send-media', attachInstance, requireConnected, upload.s
   }
 
   try {
+    const target = await resolveTarget(instance, jid, number);
     const result = await instance.sock.sendMessage(target, payload);
     res.json({
       ok: true,
@@ -587,7 +614,7 @@ app.post('/instances/:id/send-media', attachInstance, requireConnected, upload.s
     });
   } catch (err) {
     logger.error({ slug: instance.slug, err: err.message }, 'falha ao enviar midia');
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(err.statusCode || 500).json({ ok: false, error: err.message });
   }
 });
 
