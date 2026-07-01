@@ -4,17 +4,23 @@
     <aside class="wa-side">
       <header class="wa-side__header">
         <div class="wa-side__header-top">
-          <a :href="backHref" class="wa-back">← Voltar</a>
-          <h2>Conversas</h2>
-          <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
-          <button class="wa-tab-btn" :class="{ 'wa-tab-btn--active': showWebhooks }" @click="showWebhooks = !showWebhooks" title="Configurar webhooks">
-            Webhooks
-          </button>
+          <div class="wa-side__header-left">
+            <a :href="backHref" class="wa-back">← Voltar</a>
+            <h2>Conversas</h2>
+          </div>
+          <div class="wa-side__header-pills">
+            <span class="wa-side__status" :class="statusClass">{{ statusLabel }}</span>
+            <button class="wa-tab-btn" :class="{ 'wa-tab-btn--active': showWebhooks }" @click="showWebhooks = !showWebhooks" title="Configurar webhooks">
+              Webhooks
+            </button>
+          </div>
+        </div>
+        <div class="wa-side__header-sub">
+          <span v-if="projectName" class="wa-side__project">{{ projectName }}</span>
           <button v-if="audioBlocked" class="wa-audio-btn" @click="requestAudio" title="Ativar notificações sonoras">
-            🔇
+            🔇 Ativar som
           </button>
         </div>
-        <div v-if="projectName" class="wa-side__project">{{ projectName }}</div>
       </header>
 
       <div v-if="showWebhooks" class="wa-side__webhooks">
@@ -706,60 +712,80 @@ export default {
 .wa-wrap {
   display: flex;
   height: 100vh;
-  font-family: system-ui, sans-serif;
-  background: #e9edef;
+  font-family: var(--font, 'Plus Jakarta Sans'), system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
 }
 
 .wa-side {
-  width: 360px;
-  background: #fff;
-  border-right: 1px solid #d1d7db;
+  width: 380px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
 }
 .wa-side__header {
-  padding: 12px 16px;
-  background: #f0f2f5;
-  border-bottom: 1px solid #d1d7db;
+  padding: 14px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
 }
 .wa-side__header-top {
   display: flex;
   align-items: center;
   gap: 10px;
   justify-content: space-between;
-  flex-wrap: wrap;
 }
-.wa-side__header h2 { margin: 0; font-size: 18px; flex: 1; }
+.wa-side__header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.wa-side__header h2 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); }
+.wa-side__header-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.wa-side__header-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  min-height: 20px;
+}
 .wa-side__project {
-  margin-top: 4px;
   font-size: 12px;
-  color: #54656f;
+  color: var(--muted);
 }
 .wa-back {
-  font-size: 12px;
-  color: #54656f;
+  font-size: 13px;
+  color: var(--brand);
   text-decoration: none;
   white-space: nowrap;
+  font-weight: 700;
 }
 .wa-back:hover {
-  color: #1e293b;
-  text-decoration: underline;
+  opacity: 0.8;
 }
 .wa-side__status {
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #d1d7db;
-  color: #54656f;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-2);
 }
-.wa-side__status--ok { background: #d8f3dc; color: #095c2a; }
-.wa-side__status--warn { background: #fff3bf; color: #856404; }
-.wa-side__status--err { background: #fad4d4; color: #842029; }
+.wa-side__status--ok { background: var(--brand-soft); color: #b794f6; }
+.wa-side__status--warn { background: rgba(234,179,8,0.2); color: #e8c96e; }
+.wa-side__status--err { background: rgba(240,90,75,0.16); color: #f08a7e; }
 
 .wa-side__list { flex: 1; overflow-y: auto; }
 .wa-empty {
   padding: 24px;
-  color: #667781;
+  color: var(--muted);
   text-align: center;
   font-size: 14px;
 }
@@ -768,8 +794,8 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f0f2f5;
-  color: #41525d;
+  background: #1c1c1c;
+  color: var(--muted);
 }
 .wa-empty--main h3 { margin: 0 0 8px; }
 
@@ -779,7 +805,7 @@ export default {
   width: 100%;
   background: none;
   border: none;
-  border-bottom: 1px solid #f0f2f5;
+  border-bottom: 1px solid var(--line);
   padding: 10px 14px;
   text-align: left;
   display: flex;
@@ -787,48 +813,49 @@ export default {
   align-items: center;
   cursor: pointer;
 }
-.wa-chat-item:hover { background: #f5f6f6; }
-.wa-chat-item--active { background: #f0f2f5; }
+.wa-chat-item:hover { background: var(--hover); }
+.wa-chat-item--active { background: var(--brand-soft); }
 .wa-chat-item__body { flex: 1; min-width: 0; }
 .wa-chat-item__title {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 14px;
+  color: var(--ink);
   display: flex;
   align-items: center;
   gap: 6px;
 }
 .wa-chat-item__preview {
   font-size: 13px;
-  color: #667781;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .wa-chat-item__time {
   font-size: 11px;
-  color: #667781;
+  color: var(--muted);
 }
 .wa-chat-item__badge {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  font-weight: 500;
-  background: #e9edef;
-  color: #54656f;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.09);
+  color: #9aa6a1;
 }
-.wa-badge--group { background: #cce5ff; color: #003d80; }
-.wa-badge--newsletter { background: #f0e0ff; color: #5a2d82; }
-.wa-badge--private_lid { background: #fff3bf; color: #856404; }
+.wa-badge--group { background: rgba(59,130,246,0.2); color: #92bef8; }
+.wa-badge--newsletter { background: rgba(168,85,247,0.2); color: #c8a4f7; }
+.wa-badge--private_lid { background: rgba(234,179,8,0.2); color: #e8c96e; }
 
 .wa-avatar {
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   color: #fff;
   display: grid;
   place-items: center;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 15px;
   flex-shrink: 0;
 }
 
@@ -839,46 +866,49 @@ export default {
   min-width: 0;
 }
 .wa-main__header {
-  padding: 12px 16px;
-  background: #f0f2f5;
-  border-bottom: 1px solid #d1d7db;
+  padding: 14px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
   display: flex;
   gap: 12px;
   align-items: center;
 }
-.wa-main__title { font-weight: 600; }
-.wa-main__subtitle { font-size: 12px; color: #667781; }
+.wa-main__title { font-weight: 700; color: var(--ink); }
+.wa-main__subtitle { font-size: 12px; color: var(--muted); }
 
 .wa-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  background: #efeae2;
-  background-image:
-    radial-gradient(circle at 10% 10%, #d9d3c5 1px, transparent 1px),
-    radial-gradient(circle at 80% 60%, #d9d3c5 1px, transparent 1px);
-  background-size: 30px 30px;
+  padding: 24px 26px;
+  background: #1c1c1c;
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
+  background-size: 22px 22px;
 }
 .wa-msg {
   display: flex;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .wa-msg--out { justify-content: flex-end; }
 .wa-msg__bubble {
-  max-width: 65%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: #fff;
+  max-width: 62%;
+  padding: 9px 13px;
+  border-radius: 14px;
+  border-top-left-radius: 5px;
+  background: #333333;
+  color: var(--ink);
   font-size: 14px;
-  box-shadow: 0 1px 0.5px rgba(0,0,0,0.13);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25);
   word-wrap: break-word;
 }
 .wa-msg--out .wa-msg__bubble {
-  background: #d9fdd3;
+  background: #3a2b66;
+  color: #e8ddfb;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 5px;
 }
 .wa-msg__type-icon {
   font-size: 12px;
-  color: #667781;
+  color: var(--muted);
   margin-bottom: 4px;
 }
 .wa-msg__image {
@@ -903,25 +933,26 @@ export default {
 .wa-msg__doc {
   display: inline-block;
   padding: 8px 10px;
-  background: #f0f2f5;
-  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
   text-decoration: none;
-  color: #054d3a;
+  color: #b794f6;
   font-size: 13px;
 }
 .wa-msg__loc {
   font-size: 13px;
-  background: #f0f2f5;
+  background: rgba(255,255,255,0.08);
   padding: 8px;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 .wa-msg__body { white-space: pre-wrap; }
 .wa-msg__time {
   font-size: 10px;
-  color: #667781;
+  color: var(--muted);
   margin-top: 4px;
   text-align: right;
 }
+.wa-msg--out .wa-msg__time { color: #a78bf0; }
 .wa-msg__sender {
   display: flex;
   align-items: baseline;
@@ -930,40 +961,47 @@ export default {
 }
 .wa-msg__sender-name {
   font-size: .75rem;
-  font-weight: 600;
-  color: #065f46;
+  font-weight: 700;
+  color: #b794f6;
 }
 .wa-msg__sender-phone {
   font-size: .7rem;
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .wa-composer {
   display: flex;
-  gap: 8px;
-  padding: 10px 14px;
-  background: #f0f2f5;
-  border-top: 1px solid #d1d7db;
+  gap: 11px;
+  padding: 14px 20px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  align-items: center;
 }
 .wa-composer__input {
   flex: 1;
-  border: none;
-  background: #fff;
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 14px;
+  border: 1px solid var(--line);
+  background: #242424;
+  border-radius: 14px;
+  padding: 11px 14px;
+  font-size: 14.5px;
+  color: var(--ink);
   outline: none;
+  font-family: inherit;
 }
+.wa-composer__input::placeholder { color: var(--muted); }
+.wa-composer__input:focus { border-color: var(--brand); background: #2b2b2b; }
 .wa-composer__send {
-  background: #008069;
+  background: var(--brand);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 13px;
   padding: 0 18px;
-  font-weight: 600;
+  height: 44px;
+  font-weight: 700;
   cursor: pointer;
 }
-.wa-composer__send:disabled { opacity: .5; cursor: not-allowed; }
+.wa-composer__send:hover:not(:disabled) { background: var(--brand-deep); }
+.wa-composer__send:disabled { background: #3a3a3a; color: var(--muted); cursor: not-allowed; }
 
 .wa-composer__attach {
   background: none;
@@ -971,18 +1009,18 @@ export default {
   font-size: 22px;
   cursor: pointer;
   padding: 0 6px;
-  color: #54656f;
+  color: var(--muted);
 }
 .wa-composer__attach:disabled { opacity: .4; cursor: not-allowed; }
-.wa-composer__attach:hover:not(:disabled) { color: #008069; }
+.wa-composer__attach:hover:not(:disabled) { color: var(--brand); }
 
 .wa-attach {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 14px;
-  background: #fff;
-  border-top: 1px solid #d1d7db;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
 }
 .wa-attach__thumb {
   width: 44px;
@@ -996,36 +1034,37 @@ export default {
   display: grid;
   place-items: center;
   font-size: 24px;
-  background: #f0f2f5;
-  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
 }
 .wa-attach__meta { flex: 1; min-width: 0; }
 .wa-attach__name {
   font-size: 13px;
   font-weight: 600;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .wa-attach__size {
   font-size: 11px;
-  color: #667781;
+  color: var(--muted);
 }
 .wa-attach__cancel {
   background: none;
   border: none;
   font-size: 16px;
-  color: #667781;
+  color: var(--muted);
   cursor: pointer;
   padding: 4px 8px;
 }
-.wa-attach__cancel:hover { color: #d33; }
+.wa-attach__cancel:hover { color: #f08a7e; }
 
 .wa-warn {
   margin: 0;
   padding: 6px 14px;
-  background: #fff3bf;
-  color: #856404;
+  background: rgba(234,179,8,0.16);
+  color: #e8c96e;
   font-size: 12px;
   text-align: center;
 }
@@ -1038,8 +1077,8 @@ export default {
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 9px;
-  background: #dc2626;
+  border-radius: 999px;
+  background: var(--brand);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -1047,7 +1086,7 @@ export default {
   margin-left: auto;
 }
 
-/* Degradê verde passando horizontalmente ao receber mensagem */
+/* Degradê roxo passando horizontalmente ao receber mensagem */
 @keyframes msg-sweep {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
@@ -1059,44 +1098,49 @@ export default {
   left: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent 0%, #86efac 40%, #bbf7d0 50%, #86efac 60%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.35) 40%, rgba(139,92,246,0.5) 50%, rgba(139,92,246,0.35) 60%, transparent 100%);
   animation: msg-sweep 0.4s ease-out forwards;
   pointer-events: none;
 }
 
 .wa-audio-btn {
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-2);
   cursor: pointer;
-  font-size: 1.1rem;
-  padding: 2px 4px;
-  border-radius: 4px;
-  opacity: .7;
-  transition: opacity .2s;
-  title: "Ativar notificações sonoras";
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: .85;
+  transition: opacity .2s, background .2s;
 }
-.wa-audio-btn:hover { opacity: 1; background: rgba(0,0,0,.06); }
+.wa-audio-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
 
 .wa-tab-btn {
-  font-size: 11px;
-  padding: 3px 8px;
-  border: 1px solid #d1d7db;
-  border-radius: 12px;
-  background: #fff;
-  color: #54656f;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border: none;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--ink-2);
   cursor: pointer;
   white-space: nowrap;
 }
-.wa-tab-btn:hover { background: #e9edef; }
+.wa-tab-btn:hover { background: rgba(255,255,255,0.1); }
 .wa-tab-btn--active {
-  background: #008069;
+  background: var(--brand);
   color: #fff;
-  border-color: #008069;
 }
 .wa-side__webhooks {
   flex: 1;
   overflow-y: auto;
-  background: #fff;
+  background: var(--panel);
 }
 
 .wa-msg__reactions {
@@ -1106,7 +1150,7 @@ export default {
   margin-top: 4px;
 }
 .wa-reaction {
-  background: rgba(0,0,0,.06);
+  background: rgba(255,255,255,0.1);
   border-radius: 999px;
   padding: 1px 6px;
   font-size: .8rem;

@@ -216,13 +216,15 @@ export default {
 
 <style scoped>
 .wa-connect {
-  max-width: 420px;
-  margin: 2rem auto;
-  padding: 1.5rem;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  font-family: system-ui, sans-serif;
+  max-width: 460px;
+  margin: 3rem auto;
+  padding: 1.75rem;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  font-family: var(--font, 'Plus Jakarta Sans'), system-ui, sans-serif;
+  color: var(--ink);
   text-align: center;
 }
 
@@ -232,34 +234,41 @@ export default {
 }
 .wa-connect__title {
   margin: .35rem 0 0;
-  font-size: 1.15rem;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 .wa-back {
   display: inline-block;
-  font-size: .8rem;
-  color: #64748b;
+  font-size: .82rem;
+  color: var(--brand);
+  font-weight: 700;
   text-decoration: none;
 }
-.wa-back:hover {
-  color: #1e293b;
-  text-decoration: underline;
-}
+.wa-back:hover { opacity: .8; }
 
 .wa-state {
   margin: 1rem 0;
   padding: 1rem;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
-.wa-state--loading   { background: #f1f5f9; color: #475569; }
-.wa-state--ok        { background: #ecfdf5; color: #065f46; }
-.wa-state--pending   { background: #fffbeb; color: #92400e; }
-.wa-state--waiting   { background: #fef2f2; color: #991b1b; }
+.wa-state--loading   { background: var(--hover); color: var(--ink-2); }
+.wa-state--ok        { background: var(--brand-soft); color: #c4b5fd; }
+.wa-state--pending   { background: var(--hover); color: var(--ink-2); }
+.wa-state--waiting   { background: rgba(240,90,75,0.16); color: #f08a7e; }
 
 .wa-qr-wrapper {
   display: flex;
   justify-content: center;
   margin: .75rem 0;
+}
+/* QR precisa de fundo claro para ser escaneável */
+.wa-qr-wrapper :deep(svg),
+.wa-qr-wrapper :deep(canvas) {
+  background: #fff;
+  padding: 12px;
+  border-radius: 12px;
 }
 
 .wa-dot {
@@ -269,13 +278,13 @@ export default {
   border-radius: 50%;
   margin-right: 6px;
 }
-.wa-dot--ok   { background: #10b981; }
-.wa-dot--warn { background: #f59e0b; }
+.wa-dot--ok   { background: var(--brand); }
+.wa-dot--warn { background: #e8c96e; }
 
 .wa-meta {
   margin-top: .5rem;
   font-size: .85rem;
-  opacity: .75;
+  color: var(--muted);
 }
 
 .wa-actions {
@@ -286,27 +295,30 @@ export default {
   flex-wrap: wrap;
 }
 .wa-btn {
-  padding: .5rem 1rem;
+  padding: .6rem 1.1rem;
   border: none;
-  border-radius: 6px;
+  border-radius: 11px;
   color: #fff;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 700;
+  font-family: inherit;
 }
-.wa-btn--primary { background: #2563eb; }
-.wa-btn--danger  { background: #dc2626; }
+.wa-btn--primary { background: var(--brand); }
+.wa-btn--primary:hover:not(:disabled) { background: var(--brand-deep); }
+.wa-btn--danger  { background: rgba(240,90,75,0.16); color: #f08a7e; }
+.wa-btn--danger:hover:not(:disabled) { background: rgba(240,90,75,0.28); }
 .wa-btn:disabled {
   opacity: .6;
   cursor: not-allowed;
 }
 .wa-link {
   display: inline-block;
-  padding: .5rem 1rem;
-  background: #008069;
+  padding: .6rem 1.1rem;
+  background: var(--brand);
   color: #fff;
-  border-radius: 6px;
+  border-radius: 11px;
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 700;
 }
-.wa-link:hover { background: #006e57; }
+.wa-link:hover { background: var(--brand-deep); }
 </style>

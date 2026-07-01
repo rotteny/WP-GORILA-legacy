@@ -1,9 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 @import 'tailwindcss';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+/* ===========================================================================
+   Design system — tema escuro WP-Gorila (tokens compartilhados)
+   Cores e medidas vindas do design (Plus Jakarta Sans, marca roxa, dark).
+   =========================================================================== */
+:root {
+    /* nomes do design (usados nas telas reconstruídas fiéis ao mockup) */
+    --brand: #8b5cf6;
+    --brand-deep: #7c3aed;
+    --brand-soft: rgba(139, 92, 246, 0.16);
+    --ink: #f2f2f2;
+    --ink-2: #b5b5b5;
+    --muted: #8a8a8a;
+    --line: #3a3a3a;
+    --bg: #212121;
+    --panel: #2b2b2b;
+    --hover: rgba(255, 255, 255, 0.06);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+    --radius: 18px;
+
+    /* aliases prefixados (telas já reskinadas) */
+    --wpg-brand: var(--brand);
+    --wpg-brand-deep: var(--brand-deep);
+    --wpg-brand-soft: var(--brand-soft);
+    --wpg-ink: var(--ink);
+    --wpg-muted: var(--muted);
+    --wpg-line: var(--line);
+    --wpg-bg: var(--bg);
+    --wpg-panel: var(--panel);
+    --wpg-panel-2: #333333;
+    --wpg-hover: var(--hover);
+    --wpg-shadow: var(--shadow);
+    --wpg-shadow-lg: var(--shadow-lg);
+    --wpg-radius: var(--radius);
+
+    /* status */
+    --wpg-ok: #34d399;
+    --wpg-ok-soft: rgba(52, 211, 153, 0.16);
+    --wpg-warn: #fbbf24;
+    --wpg-warn-soft: rgba(251, 191, 36, 0.16);
+    --wpg-err: #f87171;
+    --wpg-err-soft: rgba(248, 113, 113, 0.16);
+
+    --wpg-font: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+html, body {
+    background: var(--wpg-bg);
+    color: var(--wpg-ink);
 }

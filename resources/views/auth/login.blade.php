@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WP Gorila — Acesso</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after {
             box-sizing: border-box;
@@ -13,21 +16,22 @@
 
         body {
             min-height: 100vh;
-            background-color: #0f0f0f;
+            background-color: #212121;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
             padding: 1rem;
         }
 
         .card {
             width: 100%;
             max-width: 380px;
-            background-color: #1a1a1a;
-            border: 1px solid #2a2a2a;
-            border-radius: 12px;
+            background-color: #2b2b2b;
+            border: 1px solid #3a3a3a;
+            border-radius: 18px;
             padding: 2.5rem 2rem;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
         }
 
         .brand {
@@ -39,17 +43,18 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 52px;
-            height: 52px;
-            background-color: #25d366;
-            border-radius: 14px;
+            width: 56px;
+            height: 56px;
+            background-color: #ffffff;
+            border-radius: 16px;
             margin-bottom: 1rem;
+            overflow: hidden;
         }
 
-        .brand-icon svg {
-            width: 28px;
-            height: 28px;
-            fill: #ffffff;
+        .brand-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         .brand-title {
@@ -61,7 +66,7 @@
 
         .brand-subtitle {
             font-size: 0.8rem;
-            color: #555555;
+            color: #8a8a8a;
             margin-top: 0.25rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -104,47 +109,50 @@
 
         .field input {
             width: 100%;
-            background-color: #111111;
-            border: 1px solid #2e2e2e;
-            border-radius: 8px;
-            padding: 0.65rem 0.875rem;
+            background-color: #242424;
+            border: 1px solid #3a3a3a;
+            border-radius: 11px;
+            padding: 0.7rem 0.95rem;
             font-size: 0.95rem;
             color: #f0f0f0;
             outline: none;
-            transition: border-color 0.15s ease;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            font-family: inherit;
             -webkit-appearance: none;
         }
 
         .field input::placeholder {
-            color: #3d3d3d;
+            color: #8a8a8a;
         }
 
         .field input:focus {
-            border-color: #25d366;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.14);
         }
 
         .field input:-webkit-autofill {
-            -webkit-box-shadow: 0 0 0 1000px #111111 inset;
+            -webkit-box-shadow: 0 0 0 1000px #242424 inset;
             -webkit-text-fill-color: #f0f0f0;
         }
 
         .submit {
             margin-top: 1.5rem;
             width: 100%;
-            background-color: #25d366;
+            background-color: #8b5cf6;
             color: #ffffff;
             border: none;
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
+            border-radius: 13px;
+            padding: 0.8rem 1rem;
             font-size: 0.95rem;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
-            transition: background-color 0.15s ease, opacity 0.15s ease;
+            transition: background-color 0.15s ease, transform 0.1s ease;
             letter-spacing: 0.01em;
+            font-family: inherit;
         }
 
         .submit:hover {
-            background-color: #20bc5a;
+            background-color: #7c3aed;
         }
 
         .submit:active {
@@ -164,10 +172,7 @@
 
         <div class="brand">
             <div class="brand-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                    <path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.558 4.12 1.533 5.851L.057 23.885a.75.75 0 0 0 .914.944l6.206-1.629A11.945 11.945 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.9 0-3.68-.508-5.21-1.393l-.374-.218-3.883 1.018 1.036-3.785-.24-.389A9.953 9.953 0 0 1 2 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
-                </svg>
+                <img src="/img/gorila.png" alt="WP Gorila">
             </div>
             <div class="brand-title">WP Gorila</div>
             <div class="brand-subtitle">Painel interno</div>
