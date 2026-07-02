@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\InstanceController;
+use App\Http\Controllers\MessageController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\WebhookConfigController;
 use App\Http\Controllers\WhatsAppController;
@@ -56,16 +57,22 @@ Route::prefix('whatsapp')->group(function () {
 // Use estes endpoints em integrações externas (acca, n8n, etc).
 // Permissões: send + read (não permite deletar instância nem configurar webhooks).
 // ───────────────────────────────────────────────────────────────────────────
-Route::prefix('v1/whatsapp')->middleware('api-key')->group(function () {
-    // Envio "pela chave" (sem instância/projeto na URL): o escopo da própria chave
-    // decide o destino — projeto (telefone ativo + failover) ou instância.
-    Route::post('/send-message', [WhatsAppController::class, 'sendByKey']);
-    Route::post('/send-media', [WhatsAppController::class, 'sendMediaByKey']);
+// `throttle:api-key` roda DEPOIS de `api-key`, então já tem a chave resolvida pra
+// limitar por chave (60/min). Limiter definido em AppServiceProvider::boot().
+Route::prefix('v1/whatsapp')->middleware(['api-key', 'throttle:api-key'])->group(function () {
+    // Envio ASSÍNCRONO (o único jeito de enviar pela API pública): enfileira e retorna
+    // 202 { id, status: 'queued' }. O worker processa e atualiza o status; consumidores
+    // acompanham o ciclo (message.sent/delivered/read) pelos webhooks de saída.
+    //
+    // "Pela chave" (sem instância/projeto na URL): o escopo da própria chave decide o
+    // destino — projeto (telefone ativo + failover) ou instância.
+    Route::post('/messages/text', [MessageController::class, 'sendTextByKey']);
+    Route::post('/messages/media', [MessageController::class, 'sendMediaByKey']);
 
     Route::prefix('instances/{instance}')->group(function () {
         Route::get('/status', [WhatsAppController::class, 'getStatus']);
-        Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
-        Route::post('/send-media', [WhatsAppController::class, 'sendMedia']);
+        Route::post('/messages/text', [MessageController::class, 'sendTextInstance']);
+        Route::post('/messages/media', [MessageController::class, 'sendMediaInstance']);
         Route::get('/chats', [WhatsAppController::class, 'listChats']);
         Route::get('/chats/{jid}/messages', [WhatsAppController::class, 'chatMessages'])
             ->where('jid', '.+');
@@ -75,7 +82,7 @@ Route::prefix('v1/whatsapp')->middleware('api-key')->group(function () {
     // Envio "pelo projeto": resolve o telefone ativo e envia por ele. O failover
     // (tik1 -> tik2) é transparente — a chave e a URL do consumidor não mudam.
     Route::prefix('projects/{project}')->group(function () {
-        Route::post('/send-message', [WhatsAppController::class, 'sendMessageProject']);
-        Route::post('/send-media', [WhatsAppController::class, 'sendMediaProject']);
+        Route::post('/messages/text', [MessageController::class, 'sendTextProject']);
+        Route::post('/messages/media', [MessageController::class, 'sendMediaProject']);
     });
 });

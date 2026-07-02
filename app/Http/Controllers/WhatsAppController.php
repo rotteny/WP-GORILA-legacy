@@ -5,18 +5,27 @@ namespace App\Http\Controllers;
 use App\Events\InstanceUpdated;
 use App\Models\Instance;
 use App\Models\Message;
-use App\Models\Project;
 use App\Services\ProjectFailoverService;
+use App\Services\WhatsAppGateway;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * @group Instâncias e leitura
+ *
+ * Consulta de status da sessão e leitura de conversas/mídia. O ENVIO pela API pública
+ * é sempre assíncrono — veja o {@see MessageController} (`messages/text`, `messages/media`).
+ */
 class WhatsAppController extends Controller
 {
-    private const HTTP_TIMEOUT       = 10;
-    private const HTTP_MEDIA_TIMEOUT = 60;
+    private const HTTP_TIMEOUT = 10;
+
+    public function __construct(private WhatsAppGateway $gateway)
+    {
+    }
 
     public function webhook(Request $request): JsonResponse
     {
@@ -141,6 +150,42 @@ class WhatsAppController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // Recibo de entrega/leitura (messages.update do Baileys). Atualiza os
+        // timestamps na mensagem de saída e repassa pro webhook do consumidor.
+        if ($data['event'] === 'message_status') {
+            $instance = Instance::firstWhere('slug', $data['instance_id']);
+            $payload  = $data['payload'] ?? [];
+            $waId     = $payload['id']    ?? null;
+            $state    = $payload['state'] ?? null; // 'delivered' | 'read'
+
+            if ($instance && $waId && in_array($state, ['delivered', 'read'], true)) {
+                $message = Message::where('whatsapp_message_id', $waId)->first();
+
+                if ($message) {
+                    // Leitura implica entrega — garante delivered_at mesmo se o ack
+                    // de entrega não tiver chegado (ou tiver vindo fora de ordem).
+                    $patch = [];
+                    if (! $message->delivered_at) {
+                        $patch['delivered_at'] = now();
+                    }
+                    if ($state === 'read' && ! $message->read_at) {
+                        $patch['read_at'] = now();
+                    }
+                    if ($patch) {
+                        $message->forceFill($patch)->save();
+                    }
+
+                    $payload['uuid'] = $message->uuid;
+                }
+
+                $external = $state === 'read' ? 'read' : 'delivered';
+                app(\App\Services\WebhookForwarderService::class)
+                    ->{'message' . ucfirst($external)}($instance, $payload);
+            }
+
+            return response()->json(['ok' => true]);
+        }
+
         // O Laravel é a fonte autoritativa do `name` (legível pra UI).
         // Só seta o name na CRIAÇÃO; em updates, deixa o existente intacto.
         $attributes = [
@@ -196,6 +241,18 @@ class WhatsAppController extends Controller
         }
     }
 
+    /**
+     * Status da instância
+     *
+     * Retorna o estado atual da sessão (e o QR, se estiver aguardando pareamento).
+     *
+     * @authenticated
+     *
+     * @urlParam instance string required Slug da instância. Example: tik1
+     *
+     * @response 200 {"status": "CONNECTED", "qr_code": null}
+     * @response 502 {"ok": false, "error": "whatsapp-service indisponível"}
+     */
     public function getStatus(Instance $instance): JsonResponse
     {
         try {
@@ -265,158 +322,6 @@ class WhatsAppController extends Controller
         $result   = $this->_doSendMedia($instance, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
 
         return response()->json($result['data'], $result['ok'] ? 200 : 502);
-    }
-
-    /**
-     * Envia uma mensagem "pelo projeto": resolve o telefone ativo atual e envia por ele.
-     * O consumidor (ex.: TikBot) não precisa saber qual número físico está ativo — o
-     * failover (tik1 -> tik2) fica transparente.
-     */
-    public function sendMessageProject(Request $request, Project $project): JsonResponse
-    {
-        $data = $request->validate([
-            'number'  => 'required_without:jid|string',
-            'jid'     => 'required_without:number|string',
-            'message' => 'required|string',
-        ]);
-
-        $instance = $this->resolveActiveInstance($project);
-        if ($instance instanceof JsonResponse) {
-            return $instance;
-        }
-
-        $result = $this->_doSendMessage($instance, $data);
-
-        return response()->json($result['data'], $result['ok'] ? 200 : 502);
-    }
-
-    public function sendMediaProject(Request $request, Project $project): JsonResponse
-    {
-        $data = $request->validate([
-            'number'  => 'required_without:jid|string',
-            'jid'     => 'required_without:number|string',
-            'caption' => 'nullable|string|max:1024',
-            'file'    => 'required|file|max:25600',
-        ]);
-
-        $instance = $this->resolveActiveInstance($project);
-        if ($instance instanceof JsonResponse) {
-            return $instance;
-        }
-
-        $file     = $request->file('file');
-        $contents = file_get_contents($file->getRealPath());
-        $result   = $this->_doSendMedia($instance, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
-
-        return response()->json($result['data'], $result['ok'] ? 200 : 502);
-    }
-
-    /**
-     * Resolve o telefone ativo do projeto pronto para enviar. Se o ativo não estiver
-     * CONNECTED, tenta failover (promove o próximo CONNECTED por prioridade) antes de
-     * desistir. Retorna a Instance pronta, ou um JsonResponse 409 se não houver telefone.
-     *
-     * @return Instance|JsonResponse
-     */
-    private function resolveActiveInstance(Project $project)
-    {
-        $instance = $project->activeInstance;
-
-        if (!$instance || $instance->status !== 'CONNECTED') {
-            $instance = app(ProjectFailoverService::class)->failover($project, $instance, 'send_time');
-        }
-
-        if (!$instance) {
-            return response()->json([
-                'ok'      => false,
-                'error'   => "Projeto '{$project->slug}' não tem telefone conectado disponível.",
-                'project' => $project->slug,
-            ], 409);
-        }
-
-        return $instance;
-    }
-
-    /**
-     * Envio "pela chave": a própria API key é o alias do destino. Não precisa pôr
-     * instância nem projeto na URL — o escopo da chave decide:
-     *   - chave de PROJETO  -> envia pelo telefone ativo do projeto (com failover);
-     *   - chave de INSTÂNCIA -> envia por aquela instância.
-     */
-    public function sendByKey(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'number'  => 'required_without:jid|string',
-            'jid'     => 'required_without:number|string',
-            'message' => 'required|string',
-        ]);
-
-        $target = $this->resolveTargetFromKey($request);
-        if ($target instanceof JsonResponse) {
-            return $target;
-        }
-
-        $result = $this->_doSendMessage($target, $data);
-
-        return response()->json($result['data'], $result['ok'] ? 200 : 502);
-    }
-
-    public function sendMediaByKey(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'number'  => 'required_without:jid|string',
-            'jid'     => 'required_without:number|string',
-            'caption' => 'nullable|string|max:1024',
-            'file'    => 'required|file|max:25600',
-        ]);
-
-        $target = $this->resolveTargetFromKey($request);
-        if ($target instanceof JsonResponse) {
-            return $target;
-        }
-
-        $file     = $request->file('file');
-        $contents = file_get_contents($file->getRealPath());
-        $result   = $this->_doSendMedia($target, $contents, $file->getClientOriginalName(), $file->getMimeType() ?: 'application/octet-stream', $data);
-
-        return response()->json($result['data'], $result['ok'] ? 200 : 502);
-    }
-
-    /**
-     * Resolve o telefone de destino a partir do escopo da API key autenticada.
-     *
-     * @return Instance|JsonResponse Instância pronta para enviar, ou resposta de erro.
-     */
-    private function resolveTargetFromKey(Request $request)
-    {
-        $apiKey = $request->attributes->get('api_key');
-
-        if (!$apiKey) {
-            return response()->json(['ok' => false, 'error' => 'Chave de API ausente.'], 401);
-        }
-
-        // Chave de projeto: resolve o telefone ativo (tentando failover se preciso).
-        if ($apiKey->project_id) {
-            $project = Project::find($apiKey->project_id);
-            if (!$project) {
-                return response()->json(['ok' => false, 'error' => 'Projeto da chave não encontrado.'], 404);
-            }
-            return $this->resolveActiveInstance($project);
-        }
-
-        // Chave de instância: envia por aquela instância (precisa estar conectada).
-        if ($apiKey->instance_slug) {
-            $instance = Instance::where('slug', $apiKey->instance_slug)->first();
-            if (!$instance) {
-                return response()->json(['ok' => false, 'error' => 'Instância da chave não encontrada.'], 404);
-            }
-            if ($instance->status !== 'CONNECTED') {
-                return response()->json(['ok' => false, 'error' => 'instância não conectada', 'status' => $instance->status], 409);
-            }
-            return $instance;
-        }
-
-        return response()->json(['ok' => false, 'error' => 'Chave de API sem escopo (sem projeto nem instância).'], 422);
     }
 
     public function sendMessageFallback(Request $request): JsonResponse
@@ -524,33 +429,7 @@ class WhatsAppController extends Controller
      */
     private function _doSendMessage(Instance $instance, array $params): array
     {
-        try {
-            $response = Http::timeout(self::HTTP_TIMEOUT)
-                ->acceptJson()
-                ->post($this->nodeBaseUrl() . '/instances/' . $instance->slug . '/send-message', $params);
-
-            if ($response->successful()) {
-                return ['ok' => true, 'data' => $response->json() ?? [], 'error' => null];
-            }
-
-            $errorBody = $response->json() ?? [];
-            $errorMsg  = $errorBody['error'] ?? ('HTTP ' . $response->status());
-
-            Log::warning('whatsapp-service recusou send-message', [
-                'slug'   => $instance->slug,
-                'status' => $response->status(),
-                'body'   => $errorBody,
-            ]);
-
-            return ['ok' => false, 'data' => $errorBody, 'error' => $errorMsg];
-        } catch (\Throwable $e) {
-            Log::error('Falha ao enviar mensagem pro whatsapp-service', [
-                'slug'  => $instance->slug,
-                'error' => $e->getMessage(),
-            ]);
-
-            return ['ok' => false, 'data' => [], 'error' => $e->getMessage()];
-        }
+        return $this->gateway->sendText($instance, $params);
     }
 
     /**
@@ -558,37 +437,7 @@ class WhatsAppController extends Controller
      */
     private function _doSendMedia(Instance $instance, string $contents, string $filename, string $mime, array $params): array
     {
-        try {
-            $response = Http::timeout(self::HTTP_MEDIA_TIMEOUT)
-                ->attach('file', $contents, $filename, ['Content-Type' => $mime])
-                ->post($this->nodeBaseUrl() . '/instances/' . $instance->slug . '/send-media', array_filter([
-                    'jid'     => $params['jid']     ?? null,
-                    'number'  => $params['number']  ?? null,
-                    'caption' => $params['caption'] ?? null,
-                ]));
-
-            if ($response->successful()) {
-                return ['ok' => true, 'data' => $response->json() ?? [], 'error' => null];
-            }
-
-            $errorBody = $response->json() ?? [];
-            $errorMsg  = $errorBody['error'] ?? ('HTTP ' . $response->status());
-
-            Log::warning('whatsapp-service recusou send-media', [
-                'slug'   => $instance->slug,
-                'status' => $response->status(),
-                'body'   => $errorBody,
-            ]);
-
-            return ['ok' => false, 'data' => $errorBody, 'error' => $errorMsg];
-        } catch (\Throwable $e) {
-            Log::error('Falha ao enviar mídia pro whatsapp-service', [
-                'slug'  => $instance->slug,
-                'error' => $e->getMessage(),
-            ]);
-
-            return ['ok' => false, 'data' => [], 'error' => $e->getMessage()];
-        }
+        return $this->gateway->sendMedia($instance, $contents, $filename, $mime, $params);
     }
 
     public function listChats(Instance $instance): JsonResponse

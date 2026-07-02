@@ -8,6 +8,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
+/**
+ * Autenticação por chave de API, exercitada pelo endpoint assíncrono `messages/text`
+ * (o middleware `api-key` roda antes do controller, então 401/403 valem igual pra
+ * qualquer rota v1; o sucesso agora responde 202 queued em vez de 200).
+ */
 class ApiKeyAuthTest extends TestCase
 {
     use RefreshDatabase;
@@ -42,7 +47,7 @@ class ApiKeyAuthTest extends TestCase
     {
         Instance::factory()->connected()->create(['slug' => 'pub']);
 
-        $this->postJson('/api/v1/whatsapp/instances/pub/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/pub/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
         ])->assertUnauthorized()
@@ -53,7 +58,7 @@ class ApiKeyAuthTest extends TestCase
     {
         Instance::factory()->connected()->create(['slug' => 'pub']);
 
-        $this->postJson('/api/v1/whatsapp/instances/pub/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/pub/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
         ], ['Authorization' => 'Bearer wpg_chaveinvalida'])
@@ -62,33 +67,33 @@ class ApiKeyAuthTest extends TestCase
 
     public function test_request_with_valid_key_succeeds(): void
     {
-        [$instance, $plaintext] = $this->makeKey('valida');
+        [, $plaintext] = $this->makeKey('valida');
 
-        $this->postJson('/api/v1/whatsapp/instances/valida/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/valida/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
         ], ['Authorization' => "Bearer {$plaintext}"])
-          ->assertOk()
-          ->assertJsonPath('ok', true);
+          ->assertStatus(202)
+          ->assertJsonPath('status', 'queued');
     }
 
     public function test_x_api_key_header_also_works(): void
     {
-        [$instance, $plaintext] = $this->makeKey('hdr');
+        [, $plaintext] = $this->makeKey('hdr');
 
-        $this->postJson('/api/v1/whatsapp/instances/hdr/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/hdr/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
         ], ['X-API-Key' => $plaintext])
-          ->assertOk();
+          ->assertStatus(202);
     }
 
     public function test_key_of_other_instance_returns_403(): void
     {
-        [$instance, $plaintext] = $this->makeKey('proj-a');
+        [, $plaintext] = $this->makeKey('proj-a');
         Instance::factory()->connected()->create(['slug' => 'proj-b']);
 
-        $this->postJson('/api/v1/whatsapp/instances/proj-b/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/proj-b/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
         ], ['Authorization' => "Bearer {$plaintext}"])
@@ -98,7 +103,7 @@ class ApiKeyAuthTest extends TestCase
 
     public function test_revoked_key_returns_401(): void
     {
-        $instance = Instance::factory()->connected()->create(['slug' => 'rev']);
+        Instance::factory()->connected()->create(['slug' => 'rev']);
         $generated = ApiKey::generate();
         ApiKey::create([
             'instance_slug' => 'rev',
@@ -108,7 +113,7 @@ class ApiKeyAuthTest extends TestCase
             'revoked_at'    => now(),
         ]);
 
-        $this->postJson('/api/v1/whatsapp/instances/rev/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/rev/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
         ], ['Authorization' => "Bearer {$generated['plaintext']}"])
@@ -117,15 +122,15 @@ class ApiKeyAuthTest extends TestCase
 
     public function test_last_used_at_is_updated_on_success(): void
     {
-        [$instance, $plaintext] = $this->makeKey('last-used');
+        [, $plaintext] = $this->makeKey('last-used');
 
         $before = ApiKey::where('instance_slug', 'last-used')->first();
         $this->assertNull($before->last_used_at);
 
-        $this->postJson('/api/v1/whatsapp/instances/last-used/send-message', [
+        $this->postJson('/api/v1/whatsapp/instances/last-used/messages/text', [
             'number'  => '5511999999999',
             'message' => 'oi',
-        ], ['Authorization' => "Bearer {$plaintext}"])->assertOk();
+        ], ['Authorization' => "Bearer {$plaintext}"])->assertStatus(202);
 
         $after = $before->fresh();
         $this->assertNotNull($after->last_used_at);

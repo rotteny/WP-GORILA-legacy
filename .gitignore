@@ -36,3 +36,8 @@ Thumbs.db
 /tests/api/.env
 /tests/api/.cookies
 /tests/api/fixtures/
+
+# Scribe — docs geradas (regenerar no deploy com `php artisan scribe:generate`)
+/.scribe
+/public/vendor/scribe
+/resources/views/scribe

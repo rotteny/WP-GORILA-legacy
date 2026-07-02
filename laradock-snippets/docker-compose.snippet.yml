@@ -10,6 +10,14 @@
         - PORT=3000
         - LARAVEL_WEBHOOK_URL=http://nginx/api/whatsapp/webhook
         - AUTH_DIR=/usr/src/app/auth_info
+        # Anti-ban: throttle de envio por sessão (INCR atômico no Redis do Laradock).
+        # O Redis do Laradock sobe com --requirepass; a senha vem do ~/laradock/.env
+        # (REDIS_PASSWORD, default "secret_redis"). Sem ela: NOAUTH e o throttle vira no-op.
+        - REDIS_HOST=redis
+        - REDIS_PORT=6379
+        - REDIS_PASSWORD=secret_redis
+        - WA_RATE_BURST=5
+        - WA_RATE_MAX_WAIT_MS=10000
       volumes:
         - ../workspace/wp-gorila/whatsapp-service/auth_info:/usr/src/app/auth_info
       ports:
@@ -18,3 +26,4 @@
         - backend
       depends_on:
         - nginx
+        - redis
