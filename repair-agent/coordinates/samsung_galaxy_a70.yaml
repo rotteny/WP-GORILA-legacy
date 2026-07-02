@@ -1,0 +1,14 @@
+# Samsung Galaxy A70
+# Resolucao: 1080x2340, ~385dpi, 6.7"
+# Android 9 original -> upgrade ate Android 11 (One UI 3.1).
+#
+# ATENCAO: valores abaixo sao PALPITE inicial baseado em proporcao 1080x2400.
+# Rodar `python scripts/calibrate.py <device_id>` no A70 real, abrir o PNG
+# gerado e substituir estas coordenadas antes de tirar do dry_run.
+menu_button:       { x: 1010, y: 180 }
+switch_account:    { x: 540,  y: 1540 }
+account_slot_1:    { x: 540,  y: 1710 }
+account_slot_2:    { x: 540,  y: 1820 }
+linked_devices:    { x: 540,  y: 1180 }
+link_device_btn:   { x: 540,  y: 1400 }
+link_via_number:   { x: 540,  y: 1610 }

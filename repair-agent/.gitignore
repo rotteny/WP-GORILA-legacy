@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+config.yaml
+.env
+logs/
+screenshots/
+*.png
+!coordinates/*.yaml
+.pytest_cache/
+.mypy_cache/

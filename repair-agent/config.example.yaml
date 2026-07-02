@@ -1,0 +1,60 @@
+# =============================================================
+# wp-gorila-agent — Configuracao local
+# Copie este arquivo para config.yaml e ajuste os valores.
+# =============================================================
+
+# Identidade deste agent (aparece no painel do wp-gorila).
+hostname: "cockpit-gorila-01"
+
+# Conexao com o wp-gorila.
+server:
+  base_url: "https://api.wp-gorila.com"
+  api_key: "${WP_GORILA_AGENT_API_KEY}"
+  hmac_secret: "${WP_GORILA_AGENT_HMAC_SECRET}"
+  request_timeout_seconds: 30
+  poll_interval_seconds: 5
+  heartbeat_interval_seconds: 30
+
+# Comportamento operacional.
+behavior:
+  dry_run: false
+  max_concurrent_repairs: 3
+  task_timeout_seconds: 90
+  circuit_breaker_failures: 3
+  circuit_breaker_pause_minutes: 30
+
+# Devices Android conectados via USB.
+# `id` = valor que aparece em `adb devices` (serial do device).
+# `model` = nome do arquivo em coordinates/<model>.yaml (sem .yaml).
+devices:
+  - id: "R58N123ABCD"
+    model: "samsung_galaxy_a70"
+    apps:
+      whatsapp:
+        package: "com.whatsapp"
+        accounts:
+          - slug: "acca-tik1"
+            phone: "+5511999991111"
+            slot: 1
+          - slug: "acca-tik2"
+            phone: "+5511999992222"
+            slot: 2
+      whatsapp_business:
+        package: "com.whatsapp.w4b"
+        accounts:
+          - slug: "acca-tik3"
+            phone: "+5511999993333"
+            slot: 1
+          - slug: "acca-tik4"
+            phone: "+5511999994444"
+            slot: 2
+
+log_level: "INFO"
+log_dir: "./logs"
+screenshot_dir: "./screenshots"
+screenshot_retention_days: 30
+log_retention_days: 90
+
+ocr:
+  enabled: false
+  tesseract_lang: "por"

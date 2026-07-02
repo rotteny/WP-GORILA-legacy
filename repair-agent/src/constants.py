@@ -1,0 +1,18 @@
+"""Timeouts, delays e constantes de package name."""
+
+# Delays (segundos) usados na sequencia ADB — casam com docs/repair-agent-python-plan.md §15.
+DELAY_AFTER_WAKEUP = 0.5
+DELAY_AFTER_HOME = 0.5
+DELAY_APP_LAUNCH = 3.0
+DELAY_MENU_OPEN = 1.0
+DELAY_SWITCH_ACCOUNT = 2.0
+DELAY_LINKED_DEVICES = 2.0
+DELAY_LINK_BTN = 1.0
+DELAY_LINK_VIA_NUMBER = 1.5
+DELAY_AFTER_TYPE = 1.0
+DELAY_WAIT_CONNECTION = 30.0
+
+ADB_DEFAULT_TIMEOUT = 15.0
+
+WHATSAPP_PACKAGE = "com.whatsapp"
+WHATSAPP_BUSINESS_PACKAGE = "com.whatsapp.w4b"

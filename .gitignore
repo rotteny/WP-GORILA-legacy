@@ -3,6 +3,15 @@
 /whatsapp-service/auth_info/*
 !/whatsapp-service/auth_info/.gitkeep
 
+# === Repair Agent (Python, roda no PC dedicado + A70) ===
+/repair-agent/.venv/
+/repair-agent/config.yaml
+/repair-agent/.env
+/repair-agent/logs/
+/repair-agent/screenshots/
+/repair-agent/**/__pycache__/
+/repair-agent/.pytest_cache/
+
 # === Laravel ===
 *.log
 .DS_Store

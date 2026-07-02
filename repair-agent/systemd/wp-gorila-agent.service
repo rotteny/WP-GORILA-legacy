@@ -1,0 +1,23 @@
+[Unit]
+Description=wp-gorila Repair Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent
+Group=agent
+WorkingDirectory=/home/agent/wp-gorila-agent
+Environment="PATH=/home/agent/wp-gorila-agent/.venv/bin:/usr/bin:/bin"
+EnvironmentFile=/home/agent/wp-gorila-agent/.env
+ExecStart=/home/agent/wp-gorila-agent/.venv/bin/python agent.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/wp-gorila-agent.log
+StandardError=append:/var/log/wp-gorila-agent.log
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

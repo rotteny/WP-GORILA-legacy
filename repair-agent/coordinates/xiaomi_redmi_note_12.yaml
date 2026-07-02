@@ -1,0 +1,10 @@
+# Xiaomi Redmi Note 12
+# Resolucao: 1080x2400, densidade 395dpi
+# Calibrar com scripts/calibrate.py sempre que o WhatsApp atualizar UI.
+menu_button:       { x: 1010, y: 190 }
+switch_account:    { x: 540,  y: 1580 }
+account_slot_1:    { x: 540,  y: 1750 }
+account_slot_2:    { x: 540,  y: 1870 }
+linked_devices:    { x: 540,  y: 1210 }
+link_device_btn:   { x: 540,  y: 1440 }
+link_via_number:   { x: 540,  y: 1650 }
