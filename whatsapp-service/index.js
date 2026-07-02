@@ -15,6 +15,7 @@ const axios = require('axios');
 const QRCode = require('qrcode');
 const pino = require('pino');
 const multer = require('multer');
+const Redis = require('ioredis');
 const fs = require('fs').promises;
 const path = require('path');
 const {
@@ -36,7 +37,67 @@ const AUTH_DIR = process.env.AUTH_DIR || '/usr/src/app/auth_info';
 
 const INBOX_SIZE = 500;
 
+// Anti-ban: limita a cadência de envio POR sessão. Sem isso, um pico de mensagens
+// faz o WhatsApp banar o número. Espaça os envios em ~1s, tolerando um burst curto.
+const REDIS_HOST = process.env.REDIS_HOST || null;
+const REDIS_PORT = Number(process.env.REDIS_PORT || 6379);
+// Trata "null"/"" como sem senha (a convenção do Laravel usa a string "null").
+const REDIS_PASSWORD =
+  process.env.REDIS_PASSWORD && process.env.REDIS_PASSWORD !== 'null'
+    ? process.env.REDIS_PASSWORD
+    : undefined;
+const WA_RATE_BURST = Number(process.env.WA_RATE_BURST || 5); // máx por segundo
+const WA_RATE_MAX_WAIT_MS = Number(process.env.WA_RATE_MAX_WAIT_MS || 10000);
+
 const logger = pino({ level: 'info' });
+
+// Cliente dedicado ao rate limit. Se REDIS_HOST não estiver setado (ex.: rodando
+// fora do compose), o throttle vira no-op — não trava o envio por causa disso.
+const rateRedis = REDIS_HOST
+  ? new Redis({ host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD, maxRetriesPerRequest: 1, lazyConnect: false })
+  : null;
+
+if (rateRedis) {
+  rateRedis.on('error', (err) => logger.warn({ err: err.message }, 'redis (rate limit) indisponível'));
+}
+
+/**
+ * Throttle por sessão via Redis. Reserva um slot no balde do segundo atual
+ * (`rate:instance:{slug}:{segundo}`, INCR + TTL 2s). Até `WA_RATE_BURST` envios
+ * cabem no mesmo segundo; passando disso, espera o próximo segundo e tenta de novo,
+ * até `WA_RATE_MAX_WAIT_MS`. Estourou a espera → recusa (429). Sem Redis, no-op.
+ */
+async function throttleInstance(slug) {
+  if (!rateRedis) return;
+
+  const deadline = Date.now() + WA_RATE_MAX_WAIT_MS;
+
+  for (;;) {
+    const second = Math.floor(Date.now() / 1000);
+    const key = `rate:instance:${slug}:${second}`;
+
+    let count;
+    try {
+      count = await rateRedis.incr(key);
+      if (count === 1) await rateRedis.expire(key, 2);
+    } catch (err) {
+      // Redis fora do ar não pode impedir o envio — só perdemos o anti-ban.
+      logger.warn({ slug, err: err.message }, 'rate limit sem Redis; enviando sem throttle');
+      return;
+    }
+
+    if (count <= WA_RATE_BURST) return;
+
+    if (Date.now() >= deadline) {
+      const err = new Error('limite de envio por segundo excedido (anti-ban); tente novamente');
+      err.statusCode = 429;
+      throw err;
+    }
+
+    // Espera até virar o segundo e disputa o balde seguinte.
+    await new Promise((resolve) => setTimeout(resolve, 1000 - (Date.now() % 1000)));
+  }
+}
 
 // =============================================================================
 // STATE
@@ -334,6 +395,37 @@ async function startBaileys(slug) {
     });
   });
 
+  // Recibos de entrega/leitura. O ack do WhatsApp é numérico (proto WAMessageStatus):
+  //   3 = DELIVERY_ACK (entregue), 4 = READ, 5 = PLAYED (áudio ouvido).
+  // Só interessam mensagens NOSSAS (fromMe) — é o status do que enviamos.
+  instance.sock.ev.on('messages.update', (updates) => {
+    if (!Array.isArray(updates)) return;
+
+    for (const u of updates) {
+      const ack = u?.update?.status;
+      if (ack === undefined || ack === null) continue;
+      if (!(u?.key?.fromMe)) continue;
+
+      let state = null;
+      if (ack === 3) state = 'delivered';
+      else if (ack === 4 || ack === 5) state = 'read';
+      if (!state) continue;
+
+      notifyLaravel(instance, {
+        event: 'message_status',
+        status: instance.status,
+        payload: {
+          id: u.key?.id,
+          remoteJid: u.key?.remoteJid,
+          fromMe: true,
+          ack,
+          state,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   // messages.reaction não é emitido em Baileys 6.7.x —
   // reações chegam via messages.upsert como reactionMessage (tratado acima).
 }
@@ -556,6 +648,7 @@ app.post('/instances/:id/send-message', attachInstance, requireConnected, async 
   }
 
   try {
+    await throttleInstance(instance.slug);
     const target = await resolveTarget(instance, jid, number);
     const result = await instance.sock.sendMessage(target, { text: String(message) });
     res.json({ ok: true, id: result?.key?.id ?? null, to: target });
@@ -603,6 +696,7 @@ app.post('/instances/:id/send-media', attachInstance, requireConnected, upload.s
   }
 
   try {
+    await throttleInstance(instance.slug);
     const target = await resolveTarget(instance, jid, number);
     const result = await instance.sock.sendMessage(target, payload);
     res.json({
