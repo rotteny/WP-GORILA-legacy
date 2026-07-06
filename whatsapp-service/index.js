@@ -24,6 +24,7 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion,
   downloadMediaMessage,
+  Browsers,
 } = require('@whiskeysockets/baileys');
 
 // =============================================================================
@@ -116,6 +117,13 @@ function createInstanceState(slug, name) {
     qrDataUrl: null,
     lastUpdate: new Date().toISOString(),
     inbox: [],
+    // Pareamento por código de 8 dígitos (alternativa ao QR).
+    // pairingPhone: número aguardando código; o handler de connection.update
+    // pede o código quando o socket fica pronto e guarda em pairingCode.
+    pairingPhone: null,
+    pairingCode: null,
+    pairingRequested: false,
+    pairingError: null,
   };
 }
 
@@ -283,27 +291,62 @@ async function startBaileys(slug) {
   const { state: authState, saveCreds } = await useMultiFileAuthState(instanceAuthDir);
   const { version } = await fetchLatestBaileysVersion();
 
+  // O pareamento por código só é aceito pelo WhatsApp com uma assinatura de browser
+  // PADRÃO (ex.: ['Mac OS','Chrome','14.4.1']). Com nome custom ("Gorila Piloto") o QR
+  // funciona, mas o pairing code é recusado ("não foi possível conectar o dispositivo").
+  // Por isso, quando a sessão está pareando por código, usamos Browsers.macOS('Chrome')
+  // e desligamos o timeout de query (o handshake do pareamento pode demorar).
+  const isPairing = Boolean(instance.pairingPhone);
+
   instance.sock = makeWASocket({
     version,
     auth: authState,
     printQRInTerminal: false,
     logger: pino({ level: 'silent' }),
-    browser: ['Gorila Piloto', 'Chrome', '1.0.0'],
+    browser: isPairing ? Browsers.macOS('Chrome') : ['Gorila Piloto', 'Chrome', '1.0.0'],
+    ...(isPairing ? { defaultQueryTimeoutMs: undefined } : {}),
   });
 
   instance.sock.ev.on('creds.update', saveCreds);
-
 
   instance.sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      // Pareamento por código: pedir SÓ quando o socket está pronto pra login (é o que
+      // o evento `qr` sinaliza — ws aberto e handshake feito). Pedir logo após
+      // makeWASocket dá "Connection Closed"; pedir num socket antigo já ciclando QR
+      // gera código que o WhatsApp não completa. Aqui é um socket fresco
+      // (startSessionForPairing) no momento certo. Uma vez só (guard pairingRequested).
+      if (
+        instance.pairingPhone &&
+        !instance.pairingRequested &&
+        !instance.sock.authState?.creds?.registered
+      ) {
+        instance.pairingRequested = true;
+        const phone = instance.pairingPhone;
+        instance.pairingPhone = null;
+        try {
+          instance.pairingCode = await instance.sock.requestPairingCode(phone);
+          logger.info({ slug }, 'pairing code gerado');
+        } catch (e) {
+          instance.pairingError = e.message;
+          logger.error({ slug, err: e.message }, 'falha ao gerar pairing code');
+        }
+      }
+
       const qrDataUrl = await QRCode.toDataURL(qr);
       setInstanceState(instance, { status: 'PENDING_QR', qr, qrDataUrl }, 'qr');
       logger.info({ slug }, 'Novo QR Code gerado');
     }
 
     if (connection === 'open') {
+      // Pareou (por QR ou código): limpa o estado de pareamento.
+      instance.pairingPhone = null;
+      instance.pairingRequested = false;
+      instance.pairingError = null;
+      instance.pairingCode = null;
+
       setInstanceState(
         instance,
         { status: 'CONNECTED', qr: null, qrDataUrl: null },
@@ -313,6 +356,13 @@ async function startBaileys(slug) {
     }
 
     if (connection === 'close') {
+      // Se um pareamento por código estava em curso e ainda não saiu o código,
+      // sinaliza erro pra quem está aguardando (evita espera até o timeout).
+      if ((instance.pairingPhone || instance.pairingRequested) && !instance.pairingCode) {
+        instance.pairingError =
+          instance.pairingError || 'conexão fechada antes de gerar o código';
+      }
+
       const statusCode = lastDisconnect?.error?.output?.statusCode ?? null;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -604,6 +654,98 @@ app.post('/instances/:id/reset', attachInstance, async (req, res) => {
   } catch (err) {
     logger.error({ slug: instance.slug, err: err.message }, 'falha no /reset');
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ----- PAIRING CODE ----------------------------------------------------------
+
+// Aguarda o handler de connection.update popular pairingCode (ou pairingError),
+// até `timeoutMs`. O Baileys só aceita requestPairingCode com o socket de pé, por
+// isso a solicitação acontece no evento `qr` e o resultado é lido aqui.
+function waitForPairingCode(instance, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      if (instance.pairingCode) return resolve(instance.pairingCode);
+      if (instance.pairingError) {
+        const msg = instance.pairingError;
+        instance.pairingError = null;
+        return reject(new Error(msg || 'falha ao gerar o código'));
+      }
+      if (Date.now() - start > timeoutMs) {
+        const e = new Error('tempo esgotado aguardando o WhatsApp gerar o código');
+        e.statusCode = 504;
+        return reject(e);
+      }
+      setTimeout(tick, 250);
+    };
+    tick();
+  });
+}
+
+// Reinicia a sessão do zero pedindo pareamento por código. Usado quando não há um
+// socket fresco de pé (ex.: LOGGED_OUT): limpa auth, marca pairingPhone e sobe o
+// Baileys — o handler pede o código quando o socket ficar pronto.
+async function startSessionForPairing(instance, phone) {
+  if (instance.sock) {
+    try { instance.sock.end(undefined); } catch (_) {}
+    instance.sock = null;
+  }
+
+  const dir = path.join(AUTH_DIR, instance.slug);
+  try {
+    const entries = await fs.readdir(dir);
+    await Promise.all(
+      entries.map((e) => fs.rm(path.join(dir, e), { recursive: true, force: true })),
+    );
+  } catch (_) {}
+
+  instance.pairingPhone = phone;
+  instance.pairingCode = null;
+  instance.pairingError = null;
+  instance.pairingRequested = false;
+
+  setInstanceState(instance, { status: 'INITIALIZING', qr: null, qrDataUrl: null }, 'reset');
+  await startBaileys(instance.slug);
+
+  return waitForPairingCode(instance, 18000);
+}
+
+// Alternativa ao QR: parear digitando um código de 8 dígitos no celular do chip.
+// Só faz sentido enquanto a sessão ainda NÃO está registrada; se já conectou, não há
+// o que parear. Se a sessão não estiver aguardando login (ex.: LOGGED_OUT), reinicia
+// uma sessão fresca e pede o código automaticamente.
+app.post('/instances/:id/pair-code', attachInstance, async (req, res) => {
+  const instance = req.instance;
+  const phone = String(req.body?.phone || '').replace(/\D/g, '');
+
+  if (phone.length < 10) {
+    return res.status(422).json({
+      ok: false,
+      error: 'informe "phone" com DDI, só dígitos (ex.: 5511999999999)',
+    });
+  }
+
+  if (instance.status === 'CONNECTED' || instance.sock?.authState?.creds?.registered) {
+    return res.status(409).json({
+      ok: false,
+      error: 'esta sessão já está pareada',
+      status: instance.status,
+    });
+  }
+
+  try {
+    // Sempre reinicia numa sessão fresca e pede o código logo na criação do socket.
+    // Reaproveitar um socket que já entrou no fluxo de QR gera um código que o
+    // WhatsApp rejeita no fim do pareamento.
+    const raw = await startSessionForPairing(instance, phone);
+
+    // Baileys devolve "ABCD1234"; exibimos como "ABCD-1234" pra facilitar a leitura.
+    const code = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw;
+    res.json({ ok: true, code, expires_in_seconds: 60 });
+  } catch (err) {
+    logger.error({ slug: instance.slug, err: err.message }, 'falha ao gerar pairing code');
+    res.status(err.statusCode || 500).json({ ok: false, error: err.message });
   }
 });
 
