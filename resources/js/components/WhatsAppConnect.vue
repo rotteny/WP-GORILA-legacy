@@ -35,6 +35,72 @@
       Aguardando o serviço gerar o QR Code... (status: {{ status || 'desconhecido' }})
     </div>
 
+    <!-- Alternativa ao QR: parear com código de 8 dígitos (Baileys pairing code) -->
+    <div v-if="status !== 'CONNECTED'" class="wa-pair">
+      <button
+        v-if="!showPairPanel"
+        class="wa-btn wa-btn--secondary"
+        type="button"
+        @click="openPairPanel"
+      >
+        Conectar usando número
+      </button>
+
+      <div v-else class="wa-pair__panel">
+        <template v-if="!pairCode">
+          <label class="wa-pair__label" for="wa-pair-phone">
+            Número do WhatsApp (DDD + número)
+          </label>
+          <div class="wa-pair__input-group">
+            <span class="wa-pair__prefix">+55</span>
+            <input
+              id="wa-pair-phone"
+              v-model="pairPhone"
+              class="wa-pair__input"
+              type="tel"
+              inputmode="numeric"
+              placeholder="11999999999"
+              :disabled="pairLoading"
+              @keyup.enter="requestPairCode"
+            />
+          </div>
+          <p v-if="pairError" class="wa-pair__error">{{ pairError }}</p>
+          <div class="wa-pair__actions">
+            <button
+              class="wa-btn wa-btn--primary"
+              type="button"
+              :disabled="pairLoading"
+              @click="requestPairCode"
+            >
+              {{ pairLoading ? 'Gerando...' : 'Gerar código' }}
+            </button>
+            <button class="wa-btn wa-btn--ghost" type="button" @click="closePairPanel">
+              Cancelar
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <p class="wa-pair__hint">
+            No WhatsApp do celular do chip, vá em <strong>Aparelhos conectados →
+            Conectar com número de telefone</strong> e digite o código:
+          </p>
+          <div class="wa-pair__code">{{ pairCode }}</div>
+          <p class="wa-meta">
+            <template v-if="pairExpiresIn > 0">
+              Expira em {{ pairExpiresIn }}s
+            </template>
+            <template v-else>
+              Código expirado — gere um novo.
+            </template>
+          </p>
+          <button class="wa-btn wa-btn--ghost" type="button" @click="resetPairPanel">
+            Gerar outro código
+          </button>
+        </template>
+      </div>
+    </div>
+
     <div class="wa-actions">
       <button
         class="wa-btn wa-btn--primary"
@@ -83,6 +149,14 @@ export default {
       pollHandle: null,
       pollIntervalMs: 3000,
       echoChannel: null,
+      // Pareamento por código de 8 dígitos
+      showPairPanel: false,
+      pairPhone: '',
+      pairCode: null,
+      pairLoading: false,
+      pairError: null,
+      pairExpiresIn: 0,
+      pairTimer: null,
     };
   },
 
@@ -106,6 +180,9 @@ export default {
     resetEndpoint() {
       return `/api/whatsapp/instances/${this.instanceSlug}/reset`;
     },
+    pairCodeEndpoint() {
+      return `/api/whatsapp/instances/${this.instanceSlug}/pair-code`;
+    },
   },
 
   mounted() {
@@ -116,12 +193,14 @@ export default {
   beforeUnmount() {
     this.disconnectEcho();
     this.stopPolling();
+    this.clearPairTimer();
   },
 
   // Compat Vue 2
   beforeDestroy() {
     this.disconnectEcho();
     this.stopPolling();
+    this.clearPairTimer();
   },
 
   methods: {
@@ -200,6 +279,70 @@ export default {
         alert('Não foi possível resetar agora. Tente novamente em alguns segundos.');
       } finally {
         this.resetting = false;
+      }
+    },
+
+    openPairPanel() {
+      this.showPairPanel = true;
+      this.pairError = null;
+    },
+
+    closePairPanel() {
+      this.showPairPanel = false;
+      this.resetPairPanel();
+    },
+
+    // Volta o painel pro estado de entrada (número), descartando o código atual.
+    resetPairPanel() {
+      this.clearPairTimer();
+      this.pairCode = null;
+      this.pairError = null;
+      this.pairExpiresIn = 0;
+    },
+
+    async requestPairCode() {
+      let national = this.pairPhone.replace(/\D/g, '');
+      // O DDI 55 é prefixo fixo. Se o usuário digitou o 55 mesmo assim, remove
+      // pra não duplicar (número nacional tem 10-11 dígitos: DDD + número).
+      if (national.startsWith('55') && national.length > 11) {
+        national = national.slice(2);
+      }
+      if (national.length < 10 || national.length > 11) {
+        this.pairError = 'Informe DDD + número (ex.: 11999999999).';
+        return;
+      }
+      const phone = `55${national}`;
+
+      this.pairLoading = true;
+      this.pairError = null;
+      try {
+        const { data } = await axios.post(this.pairCodeEndpoint, { phone });
+        this.pairCode = data.code;
+        this.startPairCountdown(data.expires_in_seconds || 60);
+      } catch (err) {
+        this.pairError =
+          err.response?.data?.error ||
+          'Não foi possível gerar o código agora. Tente novamente.';
+      } finally {
+        this.pairLoading = false;
+      }
+    },
+
+    startPairCountdown(seconds) {
+      this.clearPairTimer();
+      this.pairExpiresIn = seconds;
+      this.pairTimer = setInterval(() => {
+        this.pairExpiresIn -= 1;
+        if (this.pairExpiresIn <= 0) {
+          this.clearPairTimer();
+        }
+      }, 1000);
+    },
+
+    clearPairTimer() {
+      if (this.pairTimer) {
+        clearInterval(this.pairTimer);
+        this.pairTimer = null;
       }
     },
 
@@ -307,9 +450,103 @@ export default {
 .wa-btn--primary:hover:not(:disabled) { background: var(--brand-deep); }
 .wa-btn--danger  { background: rgba(240,90,75,0.16); color: #f08a7e; }
 .wa-btn--danger:hover:not(:disabled) { background: rgba(240,90,75,0.28); }
+.wa-btn--secondary {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.wa-btn--secondary:hover:not(:disabled) { background: var(--hover); }
+.wa-btn--ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+.wa-btn--ghost:hover:not(:disabled) { background: var(--hover); }
 .wa-btn:disabled {
   opacity: .6;
   cursor: not-allowed;
+}
+
+/* ---- Pareamento por código de 8 dígitos ---- */
+.wa-pair {
+  margin-top: 1rem;
+}
+.wa-pair__panel {
+  margin-top: .5rem;
+  padding: 1rem;
+  border-radius: 12px;
+  background: var(--hover);
+  text-align: center;
+}
+.wa-pair__label {
+  display: block;
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  margin-bottom: .4rem;
+  text-align: left;
+}
+.wa-pair__input-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.wa-pair__input-group:focus-within {
+  border-color: var(--brand);
+}
+.wa-pair__prefix {
+  display: flex;
+  align-items: center;
+  padding: 0 .7rem;
+  background: var(--hover);
+  color: var(--ink-2);
+  font-weight: 700;
+  font-size: 1rem;
+  border-right: 1px solid var(--line);
+}
+.wa-pair__input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: .6rem .75rem;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 1rem;
+  letter-spacing: .04em;
+}
+.wa-pair__input:focus {
+  outline: none;
+}
+.wa-pair__error {
+  margin-top: .5rem;
+  font-size: .82rem;
+  color: #f08a7e;
+  text-align: left;
+}
+.wa-pair__actions {
+  margin-top: .75rem;
+  display: flex;
+  gap: .5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.wa-pair__hint {
+  font-size: .85rem;
+  color: var(--ink-2);
+  margin-bottom: .75rem;
+}
+.wa-pair__code {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: .18em;
+  color: var(--brand);
+  padding: .75rem 0;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
 }
 .wa-link {
   display: inline-block;

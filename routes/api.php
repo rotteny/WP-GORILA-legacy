@@ -39,6 +39,7 @@ Route::prefix('whatsapp')->group(function () {
         Route::prefix('instances/{instance}')->group(function () {
             Route::get('/status', [WhatsAppController::class, 'getStatus']);
             Route::post('/reset', [WhatsAppController::class, 'reset']);
+            Route::post('/pair-code', [WhatsAppController::class, 'pairCode']);
             Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);
             Route::post('/send-media', [WhatsAppController::class, 'sendMedia']);
             Route::get('/chats', [WhatsAppController::class, 'listChats']);

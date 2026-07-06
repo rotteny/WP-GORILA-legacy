@@ -287,6 +287,27 @@ class WhatsAppController extends Controller
         return $result;
     }
 
+    public function pairCode(Request $request, Instance $instance): JsonResponse
+    {
+        $data = $request->validate([
+            'phone' => 'required|string',
+        ]);
+
+        // Só dígitos (com DDI). Ex.: 5511999999999
+        $phone = preg_replace('/\D/', '', $data['phone']);
+
+        if (strlen($phone) < 10) {
+            return response()->json([
+                'ok'    => false,
+                'error' => 'informe o número com DDI, só dígitos (ex.: 5511999999999)',
+            ], 422);
+        }
+
+        // Timeout maior: quando a sessão não está aguardando login, o Node reinicia
+        // uma sessão fresca e só então gera o código (pode levar alguns segundos).
+        return $this->proxyPost('/instances/' . $instance->slug . '/pair-code', ['phone' => $phone], 25);
+    }
+
     public function sendMessage(Request $request, Instance $instance): JsonResponse
     {
         if ($instance->status !== 'CONNECTED') {
@@ -486,10 +507,10 @@ class WhatsAppController extends Controller
         }
     }
 
-    private function proxyPost(string $path, array $data = []): JsonResponse
+    private function proxyPost(string $path, array $data = [], ?int $timeout = null): JsonResponse
     {
         try {
-            $response = Http::timeout(self::HTTP_TIMEOUT)
+            $response = Http::timeout($timeout ?? self::HTTP_TIMEOUT)
                 ->acceptJson()
                 ->post($this->nodeBaseUrl() . $path, $data);
             return response()->json($response->json(), $response->status());
