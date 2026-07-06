@@ -41,43 +41,62 @@
           <button class="pd-btn pd-btn--primary" @click="openAddModal">+ Novo telefone</button>
         </div>
 
-        <ul v-else class="pd-list">
-          <li
-            v-for="phone in phones"
-            :key="phone.id"
-            class="pd-phone"
-            :class="{ 'pd-phone--active': project.active_instance_id === phone.id }"
-          >
-            <span class="pd-phone__prio">#{{ phone.priority }}</span>
-            <div class="pd-phone__info">
-              <div class="pd-phone__name">
-                {{ phone.name }}
-                <span v-if="project.active_instance_id === phone.id" class="pd-tag-active">ATIVO</span>
+        <template v-else>
+          <div v-if="hasWarmingOnly" class="pd-filter">
+            <label class="pd-check">
+              <input type="checkbox" v-model="showWarmingOnly" />
+              Mostrar telefones de aquecimento
+            </label>
+          </div>
+
+          <ul class="pd-list">
+            <li
+              v-for="phone in visiblePhones"
+              :key="phone.id"
+              class="pd-phone"
+              :class="{ 'pd-phone--active': project.active_instance_id === phone.id }"
+            >
+              <span class="pd-phone__prio">#{{ phone.priority }}</span>
+              <div class="pd-phone__info">
+                <div class="pd-phone__name">
+                  {{ phone.name }}
+                  <span v-if="project.active_instance_id === phone.id" class="pd-tag-active">ATIVO</span>
+                  <span v-if="phone.warming_only" class="pd-tag-warming" title="Chip dedicado ao aquecimento — não envia mensagens externas">🔥 aquecimento</span>
+                </div>
+                <div class="pd-phone__slug">{{ phone.slug }}</div>
               </div>
-              <div class="pd-phone__slug">{{ phone.slug }}</div>
-            </div>
-            <span class="pd-status" :class="statusClass(phone.status)">{{ statusLabel(phone.status) }}</span>
-            <div class="pd-phone__actions">
-              <a
-                v-if="phone.status !== 'CONNECTED'"
-                :href="`/p/${encodeURIComponent(phone.slug)}/qr${backSuffix}`"
-                class="pd-btn pd-btn--xs pd-btn--primary"
-              >Ler QR</a>
-              <a
-                v-else
-                :href="`/p/${encodeURIComponent(phone.slug)}/chat${backSuffix}`"
-                class="pd-btn pd-btn--xs pd-btn--ghost"
-              >Abrir chat</a>
-              <button
-                v-if="project.active_instance_id !== phone.id"
-                class="pd-btn pd-btn--xs pd-btn--ghost"
-                :disabled="busy"
-                @click="promote(phone)"
-              >Tornar ativo</button>
-              <button class="pd-btn pd-btn--xs pd-btn--danger" :disabled="busy" @click="removePhone(phone)">Remover</button>
-            </div>
-          </li>
-        </ul>
+              <span class="pd-status" :class="statusClass(phone.status)">{{ statusLabel(phone.status) }}</span>
+              <div class="pd-phone__actions">
+                <a
+                  v-if="phone.status !== 'CONNECTED'"
+                  :href="`/p/${encodeURIComponent(phone.slug)}/qr${backSuffix}`"
+                  class="pd-btn pd-btn--xs pd-btn--primary"
+                >Ler QR</a>
+                <a
+                  v-else
+                  :href="`/p/${encodeURIComponent(phone.slug)}/chat${backSuffix}`"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                >Abrir chat</a>
+                <button
+                  v-if="project.active_instance_id !== phone.id && !phone.warming_only"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                  :disabled="busy"
+                  @click="promote(phone)"
+                >Tornar ativo</button>
+                <label class="pd-warmtoggle" title="Usar este telefone apenas para aquecimento">
+                  <input
+                    type="checkbox"
+                    :checked="phone.warming_only"
+                    :disabled="busy"
+                    @change="toggleWarmingOnly(phone)"
+                  />
+                  <span>Só aquecimento</span>
+                </label>
+                <button class="pd-btn pd-btn--xs pd-btn--danger" :disabled="busy" @click="removePhone(phone)">Remover</button>
+              </div>
+            </li>
+          </ul>
+        </template>
       </template>
     </div>
 
@@ -98,6 +117,22 @@
             <button type="submit" class="pd-btn pd-btn--primary" :disabled="savingSettings">{{ savingSettings ? 'Salvando…' : 'Salvar' }}</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal: confirmar dedicar ao aquecimento um telefone que é o ativo -->
+    <div v-if="warmingConfirm.show" class="pd-modal" @click.self="cancelWarming">
+      <div class="pd-modal__card">
+        <h2 class="pd-modal__title">Dedicar ao aquecimento?</h2>
+        <p class="pd-modal__hint">
+          Esta instância está sendo usada como telefone ativo do projeto no momento.
+          Ativar aquecimento-apenas vai forçar uma troca imediata para o próximo chip de
+          produção CONNECTED. Deseja continuar?
+        </p>
+        <div class="pd-modal__actions">
+          <button type="button" class="pd-btn pd-btn--ghost" :disabled="busy" @click="cancelWarming">Cancelar</button>
+          <button type="button" class="pd-btn pd-btn--primary" :disabled="busy" @click="confirmWarming">Continuar</button>
+        </div>
       </div>
     </div>
 
@@ -165,12 +200,22 @@ export default {
       savingSettings: false,
       settingsError: '',
       settingsForm: { responsible_email: '' },
+
+      showWarmingOnly: true, // filtro: padrão mostra todos os telefones
+      warmingConfirm: { show: false, phone: null },
     };
   },
 
   computed: {
     phones() {
       return this.project?.instances || [];
+    },
+    // Lista renderizada respeitando o filtro "mostrar telefones de aquecimento".
+    visiblePhones() {
+      return this.showWarmingOnly ? this.phones : this.phones.filter((p) => !p.warming_only);
+    },
+    hasWarmingOnly() {
+      return this.phones.some((p) => p.warming_only);
     },
     // Repassado às telas de QR/chat pra que o "voltar" retorne a este projeto.
     backSuffix() {
@@ -287,6 +332,43 @@ export default {
         this.busy = false;
       }
     },
+    // Alterna o papel warming-only. Ligar num telefone que é o ativo pede confirmação
+    // (vai forçar failover); nos demais casos aplica direto.
+    toggleWarmingOnly(phone) {
+      const target = !phone.warming_only;
+      if (target && this.project.active_instance_id === phone.id) {
+        this.warmingConfirm = { show: true, phone };
+        return;
+      }
+      this.setWarmingOnly(phone, target);
+    },
+    cancelWarming() {
+      if (this.busy) return;
+      this.warmingConfirm = { show: false, phone: null };
+      // Re-sincroniza o checkbox (bind :checked) com o estado real do servidor.
+      this.fetchProject();
+    },
+    async confirmWarming() {
+      const phone = this.warmingConfirm.phone;
+      this.warmingConfirm = { show: false, phone: null };
+      if (phone) await this.setWarmingOnly(phone, true);
+    },
+    async setWarmingOnly(phone, value) {
+      this.busy = true;
+      try {
+        await axios.patch(
+          `/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/instances/${encodeURIComponent(phone.slug)}`,
+          { warming_only: value },
+        );
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao atualizar aquecimento: ' + this.errMsg(e));
+        await this.fetchProject(); // volta o checkbox ao estado real
+      } finally {
+        this.busy = false;
+      }
+    },
+
     async removePhone(phone) {
       if (!window.confirm(`Apagar o telefone '${phone.name}'? A sessão do WhatsApp é encerrada e o número sai do projeto.`)) return;
       this.busy = true;
@@ -356,7 +438,14 @@ export default {
 .pd-phone__name { font-weight: 600; font-size: 15px; color: var(--wpg-ink); display: flex; align-items: center; gap: 8px; }
 .pd-phone__slug { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; color: var(--wpg-muted); }
 .pd-tag-active { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #c4b5fd; background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; }
-.pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pd-tag-warming { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-warn); background: var(--wpg-warn-soft); padding: 2px 6px; border-radius: 4px; }
+.pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pd-warmtoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--wpg-muted); cursor: pointer; user-select: none; padding: 0 4px; }
+.pd-warmtoggle input { cursor: pointer; margin: 0; }
+
+.pd-filter { margin-bottom: 10px; }
+.pd-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--wpg-muted); cursor: pointer; }
+.pd-check input { cursor: pointer; margin: 0; }
 
 .pd-status { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
 .pd-status--ok { background: var(--wpg-ok-soft); color: var(--wpg-ok); }

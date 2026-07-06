@@ -17,6 +17,7 @@ class Instance extends Model
         'name',
         'status',
         'priority',
+        'warming_only',
         'qr_code',
         'qr_data_url',
         'last_event_at',
@@ -25,6 +26,7 @@ class Instance extends Model
     protected $casts = [
         'last_event_at' => 'datetime',
         'priority'      => 'integer',
+        'warming_only'  => 'boolean',
     ];
 
     public function getRouteKeyName(): string

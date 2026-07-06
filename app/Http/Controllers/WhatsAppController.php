@@ -214,8 +214,9 @@ class WhatsAppController extends Controller
                 app(ProjectFailoverService::class)->failover($project, $instance, 'logged_out');
             }
 
-            // Primeiro telefone a conectar vira o ativo automaticamente.
-            if ($project && $instance->status === 'CONNECTED' && $project->active_instance_id === null) {
+            // Primeiro telefone a conectar vira o ativo automaticamente. Chip
+            // warming-only nunca vira ativo, então fica de fora dessa promoção.
+            if ($project && $instance->status === 'CONNECTED' && !$instance->warming_only && $project->active_instance_id === null) {
                 app(ProjectFailoverService::class)->promote($project, $instance);
             }
         }

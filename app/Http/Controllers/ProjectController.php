@@ -166,6 +166,37 @@ class ProjectController extends Controller
     }
 
     /**
+     * Atualiza campos por-telefone dentro do projeto. Hoje só o papel `warming_only`
+     * (chip dedicado ao aquecimento).
+     *
+     * Edge case: ativar warming_only no telefone que É o ativo do projeto força um
+     * failover imediato pro próximo chip de produção CONNECTED ANTES de setar a flag —
+     * senão o projeto ficaria com um chip de aquecimento como ativo (que não pode enviar).
+     * A confirmação com o usuário acontece na UI; aqui a troca é feita de fato.
+     */
+    public function updateInstance(Request $request, Project $project, Instance $instance): JsonResponse
+    {
+        if ($instance->project_id !== $project->id) {
+            return response()->json([
+                'ok'    => false,
+                'error' => "O telefone '{$instance->slug}' não pertence a este projeto.",
+            ], 404);
+        }
+
+        $data = $request->validate([
+            'warming_only' => ['required', 'boolean'],
+        ]);
+
+        if ($data['warming_only'] && $project->active_instance_id === $instance->id) {
+            $this->failover->failover($project, $instance, 'warming_only_toggle');
+        }
+
+        $instance->update(['warming_only' => $data['warming_only']]);
+
+        return response()->json($project->fresh(['instances', 'activeInstance']));
+    }
+
+    /**
      * Promove manualmente um telefone a ativo do projeto ("tornar ativo").
      */
     public function promote(Project $project, Instance $instance): JsonResponse

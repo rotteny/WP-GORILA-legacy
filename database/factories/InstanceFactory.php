@@ -44,4 +44,10 @@ class InstanceFactory extends Factory
     {
         return $this->state(fn () => ['status' => 'LOGGED_OUT']);
     }
+
+    /** Chip dedicado ao aquecimento: nunca vira ativo nem endpoint de envio externo. */
+    public function warmingOnly(): static
+    {
+        return $this->state(fn () => ['warming_only' => true]);
+    }
 }

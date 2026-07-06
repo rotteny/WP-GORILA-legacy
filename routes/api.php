@@ -34,6 +34,7 @@ Route::prefix('whatsapp')->group(function () {
         // Cria um telefone novo já dentro do projeto (cria sessão no whatsapp-service).
         Route::post('/projects/{project}/instances', [ProjectController::class, 'createInstance']);
         Route::delete('/projects/{project}/instances/{instance}', [ProjectController::class, 'deleteInstance']);
+        Route::patch('/projects/{project}/instances/{instance}', [ProjectController::class, 'updateInstance']);
         Route::post('/projects/{project}/instances/{instance}/promote', [ProjectController::class, 'promote']);
 
         Route::prefix('instances/{instance}')->group(function () {

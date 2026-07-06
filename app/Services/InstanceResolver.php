@@ -78,6 +78,15 @@ class InstanceResolver
      */
     public function requireConnected(Instance $instance): Instance
     {
+        // Chip warming-only só participa do aquecimento interno; nunca pode ser
+        // endpoint de envio externo (chave de instância ou rota /instances/{slug}).
+        if ($instance->warming_only) {
+            throw new TargetUnavailableException(
+                ['ok' => false, 'error' => 'Esta instância é dedicada a aquecimento e não pode enviar mensagens externas.'],
+                422
+            );
+        }
+
         if ($instance->status !== 'CONNECTED') {
             throw new TargetUnavailableException(
                 ['ok' => false, 'error' => 'instância não conectada', 'status' => $instance->status],
