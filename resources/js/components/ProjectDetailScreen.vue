@@ -35,6 +35,46 @@
       </div>
 
       <template v-else-if="project">
+        <!-- Aquecimento (warming) -->
+        <section class="pd-warming">
+          <div class="pd-warming__head">
+            <div class="pd-warming__intro">
+              <h2 class="pd-warming__title">🔥 Aquecimento</h2>
+              <p class="pd-warming__hint">
+                Os telefones conectados do projeto conversam entre si simulando conversas
+                humanas, reduzindo o risco de banimento. Precisa de ao menos 2 conectados.
+              </p>
+            </div>
+            <label class="pd-switch" :class="{ 'pd-switch--on': warmingForm.enabled }">
+              <input type="checkbox" v-model="warmingForm.enabled" :disabled="savingWarming" @change="onWarmingToggle" />
+              <span>{{ warmingForm.enabled ? 'Ligado' : 'Desligado' }}</span>
+            </label>
+          </div>
+
+          <div v-if="warmingForm.enabled" class="pd-warming__body">
+            <label class="pd-field pd-field--inline">
+              <span class="pd-field__label">Intensidade</span>
+              <select v-model="warmingForm.intensity" :disabled="savingWarming">
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </select>
+            </label>
+            <label class="pd-field pd-field--inline">
+              <span class="pd-field__label">Janela — início (h)</span>
+              <input type="number" min="0" max="23" v-model.number="warmingForm.window_start" :disabled="savingWarming" />
+            </label>
+            <label class="pd-field pd-field--inline">
+              <span class="pd-field__label">Janela — fim (h)</span>
+              <input type="number" min="0" max="23" v-model.number="warmingForm.window_end" :disabled="savingWarming" />
+            </label>
+            <button class="pd-btn pd-btn--primary pd-btn--xs" :disabled="savingWarming" @click="saveWarming">
+              {{ savingWarming ? 'Salvando…' : 'Salvar' }}
+            </button>
+          </div>
+          <div v-if="warmingError" class="pd-warming__error">{{ warmingError }}</div>
+        </section>
+
         <div v-if="phones.length === 0" class="pd-empty">
           <h2 class="pd-empty__title">Nenhum telefone neste projeto</h2>
           <p class="pd-empty__hint">Adicione o primeiro telefone e leia o QR code para conectar.</p>
@@ -203,6 +243,13 @@ export default {
 
       showWarmingOnly: true, // filtro: padrão mostra todos os telefones
       warmingConfirm: { show: false, phone: null },
+
+      // Card de aquecimento. Sincronizado do projeto uma vez (não é sobrescrito
+      // pelo polling pra não atropelar edição em andamento).
+      warmingForm: { enabled: false, intensity: 'media', window_start: 8, window_end: 22 },
+      warmingInit: false,
+      savingWarming: false,
+      warmingError: '',
     };
   },
 
@@ -238,6 +285,10 @@ export default {
         const { data } = await axios.get(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}`);
         this.project = data;
         this.notFound = false;
+        if (!this.warmingInit) {
+          this.syncWarmingForm();
+          this.warmingInit = true;
+        }
       } catch (e) {
         if (e?.response?.status === 404) this.notFound = true;
         else console.error('Erro ao carregar projeto:', e);
@@ -332,6 +383,45 @@ export default {
         this.busy = false;
       }
     },
+    // Preenche o formulário de aquecimento a partir do projeto carregado.
+    syncWarmingForm() {
+      const c = this.project?.warming_config || {};
+      this.warmingForm = {
+        enabled: !!this.project?.warming_enabled,
+        intensity: c.intensity || 'media',
+        window_start: c.window_start ?? 8,
+        window_end: c.window_end ?? 22,
+      };
+    },
+    // Ligar/desligar persiste na hora (o engine liga/desliga em < 1min).
+    onWarmingToggle() {
+      this.saveWarming();
+    },
+    async saveWarming() {
+      this.warmingError = '';
+      const ws = Number(this.warmingForm.window_start);
+      const we = Number(this.warmingForm.window_end);
+      if (!Number.isInteger(ws) || ws < 0 || ws > 23 || !Number.isInteger(we) || we < 0 || we > 23) {
+        this.warmingError = 'A janela horária deve estar entre 0 e 23.';
+        return;
+      }
+      this.savingWarming = true;
+      try {
+        await axios.patch(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}`, {
+          warming_enabled: this.warmingForm.enabled,
+          warming_config: { intensity: this.warmingForm.intensity, window_start: ws, window_end: we },
+        });
+        await this.fetchProject();
+        this.syncWarmingForm(); // reflete o que o servidor gravou
+      } catch (e) {
+        this.warmingError = this.errMsg(e, 'Falha ao salvar o aquecimento.');
+        await this.fetchProject();
+        this.syncWarmingForm(); // volta o toggle ao estado real em caso de erro
+      } finally {
+        this.savingWarming = false;
+      }
+    },
+
     // Alterna o papel warming-only. Ligar num telefone que é o ativo pede confirmação
     // (vai forçar failover); nos demais casos aplica direto.
     toggleWarmingOnly(phone) {
@@ -442,6 +532,21 @@ export default {
 .pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pd-warmtoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--wpg-muted); cursor: pointer; user-select: none; padding: 0 4px; }
 .pd-warmtoggle input { cursor: pointer; margin: 0; }
+
+.pd-warming { background: var(--wpg-panel); border: 1px solid var(--wpg-line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--wpg-shadow); margin-bottom: 20px; }
+.pd-warming__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pd-warming__intro { flex: 1 1 260px; min-width: 0; }
+.pd-warming__title { margin: 0; font-size: 16px; font-weight: 700; color: var(--wpg-ink); }
+.pd-warming__hint { margin: 4px 0 0; font-size: 12px; color: var(--wpg-muted); }
+.pd-warming__body { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--wpg-line); }
+.pd-warming__error { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 8px 12px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
+.pd-field--inline { margin-bottom: 0; }
+.pd-field--inline select, .pd-field--inline input { padding: 8px 10px; border: 1px solid var(--wpg-line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--wpg-bg); color: var(--wpg-ink); outline: none; }
+.pd-field--inline input[type="number"] { width: 90px; }
+.pd-field--inline select:focus, .pd-field--inline input:focus { border-color: var(--wpg-brand); box-shadow: 0 0 0 3px var(--wpg-brand-soft); }
+.pd-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--wpg-muted); cursor: pointer; user-select: none; flex-shrink: 0; }
+.pd-switch input { width: 18px; height: 18px; cursor: pointer; margin: 0; accent-color: var(--wpg-brand); }
+.pd-switch--on { color: var(--wpg-brand); }
 
 .pd-filter { margin-bottom: 10px; }
 .pd-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--wpg-muted); cursor: pointer; }

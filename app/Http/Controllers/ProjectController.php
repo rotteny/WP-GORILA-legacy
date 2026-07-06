@@ -49,9 +49,15 @@ class ProjectController extends Controller
     public function update(Request $request, Project $project): JsonResponse
     {
         $data = $request->validate([
-            'name'                 => ['sometimes', 'string', 'max:255'],
-            'responsible_email'    => ['sometimes', 'nullable', 'email', 'max:255'],
-            'failover_webhook_url' => ['sometimes', 'nullable', 'url', 'max:500'],
+            'name'                        => ['sometimes', 'string', 'max:255'],
+            'responsible_email'           => ['sometimes', 'nullable', 'email', 'max:255'],
+            'failover_webhook_url'        => ['sometimes', 'nullable', 'url', 'max:500'],
+            // Aquecimento (Fase 1)
+            'warming_enabled'             => ['sometimes', 'boolean'],
+            'warming_config'              => ['sometimes', 'array'],
+            'warming_config.intensity'    => ['sometimes', 'in:baixa,media,alta'],
+            'warming_config.window_start' => ['sometimes', 'integer', 'min:0', 'max:23'],
+            'warming_config.window_end'   => ['sometimes', 'integer', 'min:0', 'max:23'],
         ]);
 
         $project->update($data);

@@ -26,6 +26,7 @@ const {
   downloadMediaMessage,
   Browsers,
 } = require('@whiskeysockets/baileys');
+const { startWarming } = require('./warming/engine');
 
 // =============================================================================
 // CONFIG
@@ -34,6 +35,10 @@ const {
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_URL =
   process.env.LARAVEL_WEBHOOK_URL || 'http://nginx/api/whatsapp/webhook';
+// Base da API do Laravel pros endpoints INTERNOS do aquecimento (sem /webhook):
+// GET /internal/warming-projects e POST /internal/warming-events.
+const WARMING_API_BASE =
+  process.env.WARMING_API_BASE || WEBHOOK_URL.replace(/\/webhook\/?$/, '');
 const AUTH_DIR = process.env.AUTH_DIR || '/usr/src/app/auth_info';
 
 const INBOX_SIZE = 500;
@@ -991,4 +996,19 @@ app.listen(PORT, () => {
   bootstrap().catch((err) => {
     logger.error({ err: err.message }, 'falha no bootstrap');
   });
+
+  // Aquecimento (Fase 1): scheduler que faz as instâncias de cada projeto com
+  // warming ligado conversarem entre si. Independente do bootstrap — ele consulta
+  // o Laravel e re-checa o status das sessões ao vivo antes de cada mensagem.
+  try {
+    startWarming({
+      instances,
+      axios,
+      apiBase: WARMING_API_BASE,
+      throttle: throttleInstance,
+      logger,
+    });
+  } catch (err) {
+    logger.error({ err: err.message }, 'warming: falha ao iniciar engine');
+  }
 });
