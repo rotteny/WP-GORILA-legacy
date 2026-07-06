@@ -2,15 +2,18 @@
  * warming/project-runner.js — um runner por projeto ativo. Loop que faz as
  * instâncias CONNECTED do projeto trocarem mensagens de aquecimento entre si.
  *
- * Ciclo (card [Warming] Fase 1):
+ * Fase 1: uma mensagem solta por ciclo.
+ * Fase 2 (padrões humanoides): THREADS de 3-7 mensagens entre o mesmo par, com
+ * pausa longa depois; par escolhido por GRAFO DE PESO variável; delays GAUSSIANOS;
+ * VARIAÇÃO TEXTUAL; ~15% de REACTIONS em vez de resposta; PICOS/VALES por horário.
+ *
+ * Ciclo:
  *   1. verifica a janela horária;
- *   2. escolhe par (sender ≠ receiver, ambos CONNECTED) — pair-selector;
- *   3. escolhe um script do catálogo;
- *   4. delay uniforme entre mensagens (derivado da intensidade);
- *   5. presença "digitando…" 2-6s;
- *   6. sock.sendMessage(receiver, { text });
- *   7. lado receiver: aguarda 5-40s e marca como lida (best-effort);
- *   8. reporta o warming_event ao Laravel (fire-and-forget).
+ *   2. escolhe o par (grafo ponderado; warming-only sempre receiver);
+ *   3. monta uma thread (seed → branch → followups, encadeando scripts);
+ *   4. toca a thread: por turno → "digitando" (gauss) → texto variado OU reaction →
+ *      leitura do outro lado (5-40s) → registra o warming_event;
+ *   5. pausa longa proporcional ao tamanho da thread e à curva de atividade.
  */
 
 'use strict';
@@ -18,10 +21,12 @@
 const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 const scripts = require('./scripts');
 const behavior = require('./behavior');
-const { pickPair } = require('./pair-selector');
+const { PairGraph } = require('./pair-selector');
+const { buildThread } = require('./thread');
 
-// Intensidade → faixa de intervalo entre mensagens de aquecimento do projeto (ms).
-// Alvo aproximado: média 50-80 msgs/dia por número na janela padrão (8h-22h).
+// Intensidade → faixa de intervalo BASE por mensagem (ms). Alvo aproximado: média
+// 50-80 msgs/dia por número na janela padrão (8h-22h). A pausa entre threads é
+// escalada pelo nº de mensagens da thread, então o volume médio se mantém.
 const INTENSITY_DELAY = {
   baixa: [8 * 60_000, 16 * 60_000],
   media: [4 * 60_000, 9 * 60_000],
@@ -33,21 +38,15 @@ function delayRange(intensity) {
 }
 
 class ProjectRunner {
-  /**
-   * @param {string} slug
-   * @param {{intensity?:string, window_start?:number, window_end?:number}} config
-   * @param {Array<{slug:string, warming_only:boolean}>} members
-   * @param {{instances:Map, axios:object, apiBase:string, throttle:Function, logger:object}} ctx
-   */
   constructor(slug, config, members, ctx) {
     this.slug = slug;
     this.config = config || {};
     this.members = members || [];
     this.ctx = ctx;
     this.stopping = false;
+    this.graph = new PairGraph(); // pesos estáveis por par (Fase 2)
   }
 
-  /** Atualiza config/membros no lugar (o scheduler chama a cada poll). */
   update(config, members) {
     if (config) this.config = config;
     if (members) this.members = members;
@@ -69,9 +68,9 @@ class ProjectRunner {
     const h = new Date().getHours();
     const s = Number(this.config.window_start ?? 8);
     const e = Number(this.config.window_end ?? 22);
-    if (s === e) return true; // 24h
-    if (s < e) return h >= s && h < e; // mesma data
-    return h >= s || h < e; // cruza meia-noite
+    if (s === e) return true;
+    if (s < e) return h >= s && h < e;
+    return h >= s || h < e;
   }
 
   /** Membros que estão vivos e CONNECTED agora (re-checa o estado ao vivo). */
@@ -102,72 +101,120 @@ class ProjectRunner {
     await this._sleep(behavior.randInt(2000, 10000));
 
     while (!this.stopping) {
+      let sentCount = 0;
       try {
         if (this._inWindow()) {
-          const pair = pickPair(this._liveConnected());
-          if (pair) await this._exchange(pair);
+          const pair = this.graph.pick(this._liveConnected());
+          if (pair) sentCount = await this._runThread(pair);
         }
       } catch (err) {
-        this.ctx.logger.warn({ project: this.slug, err: err.message }, 'warming: ciclo falhou');
+        this.ctx.logger.warn({ project: this.slug, err: err.message }, 'warming: thread falhou');
       }
-      const wait = this._inWindow() ? behavior.uniformDelay(delayRange(this.config.intensity)) : 60_000;
+
+      // Pausa entre threads: base por mensagem (gauss) × nº de mensagens da thread,
+      // dividida pela curva de atividade (mais curto nos picos, mais longo nos vales).
+      const perMsg = behavior.gaussian(...delayRange(this.config.intensity));
+      const activity = behavior.activityMultiplier(new Date().getHours());
+      const wait = this._inWindow()
+        ? Math.round((perMsg * Math.max(1, sentCount)) / activity)
+        : 60_000;
       await this._sleep(wait);
     }
   }
 
-  async _exchange(pair) {
+  /**
+   * Toca uma thread entre o par. Retorna quantas mensagens de texto saíram (pra
+   * dimensionar a pausa seguinte).
+   */
+  async _runThread(pair) {
     const senderState = this.ctx.instances.get(pair.sender.slug);
     const receiverState = this.ctx.instances.get(pair.receiver.slug);
-    if (!senderState?.sock || !receiverState?.sock) return;
+    if (!senderState?.sock || !receiverState?.sock) return 0;
 
-    const script = scripts.getRandomScript();
-
-    let receiverJid;
     let senderJid;
+    let receiverJid;
     try {
-      receiverJid = jidNormalizedUser(receiverState.sock.user.id);
       senderJid = jidNormalizedUser(senderState.sock.user.id);
+      receiverJid = jidNormalizedUser(receiverState.sock.user.id);
     } catch (_) {
-      return; // socket ainda sem user resolvido
+      return 0;
     }
 
-    try {
-      await this.ctx.throttle(pair.sender.slug); // respeita o anti-ban por sessão
+    // Papéis: A = quem abre (sender), B = receiver.
+    const roleState = { A: senderState, B: receiverState };
+    const roleSlug = { A: pair.sender.slug, B: pair.receiver.slug };
+    const roleJid = { A: senderJid, B: receiverJid };
 
-      const [tmin, tmax] = script.variations?.typing_delay_ms || [1500, 4500];
-      await behavior.showTyping(senderState.sock, receiverJid, behavior.randInt(tmin, tmax));
+    const firstScript = scripts.getRandomScript();
+    const target = behavior.randInt(3, 7);
+    const turns = buildThread(scripts, firstScript, target);
+    const emojiChance = firstScript.variations?.emoji_chance ?? 0.15;
+    const [tmin, tmax] = firstScript.variations?.typing_delay_ms || [1500, 4500];
 
-      const sent = await senderState.sock.sendMessage(receiverJid, { text: script.seed.text });
+    let sent = 0;
+    let last = null; // { id, byRole } — última mensagem de texto da thread
 
-      // Lado receiver: depois de 5-40s marca como lida. Fire-and-forget: não pode
-      // travar o loop nem estourar erro se a chave não bater exatamente.
-      const readKey = { remoteJid: senderJid, id: sent?.key?.id, fromMe: false };
-      setTimeout(() => {
+    for (const turn of turns) {
+      if (this.stopping) break;
+
+      const speaker = turn.from === 'B' ? 'B' : 'A';
+      const listener = speaker === 'A' ? 'B' : 'A';
+      const spState = roleState[speaker];
+      const liState = roleState[listener];
+
+      // Se qualquer ponta caiu no meio da thread, encerra a thread.
+      if (spState.status !== 'CONNECTED' || !spState.sock || liState.status !== 'CONNECTED' || !liState.sock) {
+        break;
+      }
+
+      const toJid = roleJid[listener];
+
+      // ~15% das mensagens recebidas viram REACTION em vez de resposta em texto.
+      if (last && last.byRole === listener && behavior.chance(0.15)) {
         try {
-          receiverState.sock?.readMessages?.([readKey])?.catch?.(() => {});
-        } catch (_) { /* ignora */ }
-      }, behavior.randInt(5000, 40000));
+          const reactKey = { remoteJid: roleJid[listener], id: last.id, fromMe: false };
+          await spState.sock.sendMessage(toJid, { react: { text: behavior.randReaction(), key: reactKey } });
+          await this._report({ sender: roleSlug[speaker], receiver: roleSlug[listener], script_id: firstScript.id, status: 'sent' });
+        } catch (_) { /* reaction é cosmética */ }
+        await this._sleep(behavior.gaussian(4000, 12000));
+        continue;
+      }
 
-      await this._report({
-        sender: pair.sender.slug,
-        receiver: pair.receiver.slug,
-        script_id: script.id,
-        status: 'sent',
-      });
-      this.ctx.logger.info(
-        { project: this.slug, from: pair.sender.slug, to: pair.receiver.slug, script: script.id },
-        'warming: mensagem trocada',
-      );
-    } catch (err) {
-      await this._report({
-        sender: pair.sender.slug,
-        receiver: pair.receiver.slug,
-        script_id: script.id,
-        status: 'failed',
-        error: err.message,
-      });
-      this.ctx.logger.warn({ project: this.slug, err: err.message }, 'warming: falha no envio');
+      try {
+        await this.ctx.throttle(roleSlug[speaker]); // anti-ban por sessão
+        await behavior.showTyping(spState.sock, toJid, behavior.gaussian(tmin, tmax));
+
+        const text = behavior.varyText(turn.text, emojiChance);
+        const msg = await spState.sock.sendMessage(toJid, { text });
+        sent += 1;
+        last = { id: msg?.key?.id, byRole: speaker };
+
+        // O outro lado lê depois de 5-40s (best-effort, fire-and-forget).
+        const readKey = { remoteJid: roleJid[speaker], id: msg?.key?.id, fromMe: false };
+        setTimeout(() => {
+          try {
+            liState.sock?.readMessages?.([readKey])?.catch?.(() => {});
+          } catch (_) { /* ignora */ }
+        }, behavior.randInt(5000, 40000));
+
+        await this._report({ sender: roleSlug[speaker], receiver: roleSlug[listener], script_id: firstScript.id, status: 'sent' });
+      } catch (err) {
+        await this._report({ sender: roleSlug[speaker], receiver: roleSlug[listener], script_id: firstScript.id, status: 'failed', error: err.message });
+        this.ctx.logger.warn({ project: this.slug, err: err.message }, 'warming: falha no envio');
+        break; // provavelmente desconectou; encerra a thread
+      }
+
+      // Pausa curta e gaussiana entre mensagens da mesma thread.
+      await this._sleep(behavior.gaussian(6000, 25000));
     }
+
+    if (sent > 0) {
+      this.ctx.logger.info(
+        { project: this.slug, from: pair.sender.slug, to: pair.receiver.slug, messages: sent },
+        'warming: thread concluída',
+      );
+    }
+    return sent;
   }
 
   async _report(event) {
