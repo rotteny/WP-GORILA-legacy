@@ -39,10 +39,17 @@
         <section class="pd-warming">
           <div class="pd-warming__head">
             <div class="pd-warming__intro">
-              <h2 class="pd-warming__title">🔥 Aquecimento</h2>
-              <p class="pd-warming__hint">
+              <button class="pd-collapse" :aria-expanded="!warmingCollapsed" @click="toggleWarmingCollapsed">
+                <span class="pd-collapse__icon" :class="{ 'pd-collapse__icon--open': !warmingCollapsed }">▸</span>
+                <span class="pd-warming__title">🔥 Aquecimento</span>
+              </button>
+              <p v-if="!warmingCollapsed" class="pd-warming__hint">
                 Os telefones conectados do projeto conversam entre si simulando conversas
                 humanas, reduzindo o risco de banimento. Precisa de ao menos 2 conectados.
+              </p>
+              <p v-else-if="warmingForm.enabled && warmingStats" class="pd-warming__summary">
+                {{ warmingStats.messages_today }} msgs hoje · {{ successPct }} sucesso ·
+                {{ warmingStats.instances_healthy }}/{{ warmingStats.instances_healthy + warmingStats.instances_offline }} conectados
               </p>
             </div>
             <label class="pd-switch" :class="{ 'pd-switch--on': warmingForm.enabled }">
@@ -56,6 +63,7 @@
             <button class="pd-link" :disabled="busy" @click="resumeWarming">Reativar aquecimento</button>
           </div>
 
+          <div v-show="!warmingCollapsed">
           <div v-if="warmingForm.enabled && warmingStats" class="pd-warming__stats">
             <div class="pd-stat"><span class="pd-stat__num">{{ warmingStats.messages_today }}</span><span class="pd-stat__lbl">msgs hoje</span></div>
             <div class="pd-stat"><span class="pd-stat__num">{{ successPct }}</span><span class="pd-stat__lbl">sucesso 24h</span></div>
@@ -85,6 +93,7 @@
             </button>
           </div>
           <div v-if="warmingError" class="pd-warming__error">{{ warmingError }}</div>
+          </div>
         </section>
 
         <div v-if="phones.length === 0" class="pd-empty">
@@ -146,6 +155,12 @@
                   :disabled="busy"
                   @click="skipRamp(phone)"
                 >Pular aquecimento</button>
+                <button
+                  v-else-if="!phone.warming_only"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                  :disabled="busy"
+                  @click="restartWarming(phone)"
+                >Reiniciar aquecimento</button>
                 <label class="pd-warmtoggle" title="Usar este telefone apenas para aquecimento">
                   <input
                     type="checkbox"
@@ -274,6 +289,7 @@ export default {
       savingWarming: false,
       warmingError: '',
       warmingStats: null,
+      warmingCollapsed: false, // dashboard retrátil (persistido por projeto)
     };
   },
 
@@ -297,6 +313,9 @@ export default {
       if (!t) return '—';
       return new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     },
+    warmingCollapseKey() {
+      return `wpg-warming-collapsed-${this.projectSlug}`;
+    },
     // Repassado às telas de QR/chat pra que o "voltar" retorne a este projeto.
     backSuffix() {
       return `?back=${encodeURIComponent('/projetos/' + this.projectSlug)}`;
@@ -304,6 +323,7 @@ export default {
   },
 
   mounted() {
+    this.warmingCollapsed = localStorage.getItem(this.warmingCollapseKey) === '1';
     this.fetchProject();
     this.pollHandle = setInterval(this.fetchProject, POLL_MS);
   },
@@ -458,6 +478,10 @@ export default {
       }
     },
 
+    toggleWarmingCollapsed() {
+      this.warmingCollapsed = !this.warmingCollapsed;
+      localStorage.setItem(this.warmingCollapseKey, this.warmingCollapsed ? '1' : '0');
+    },
     async fetchWarmingStats() {
       try {
         const { data } = await axios.get(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/warming-stats`);
@@ -474,6 +498,23 @@ export default {
         await this.fetchProject();
       } catch (e) {
         alert('Falha ao reativar: ' + this.errMsg(e));
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // Reinicia a rampa do chip (começa do dia 1) e remove o override de skip.
+    async restartWarming(phone) {
+      if (!window.confirm(`Reiniciar o aquecimento de '${phone.name}'? A rampa recomeça do dia 1 (20%).`)) return;
+      this.busy = true;
+      try {
+        await axios.patch(
+          `/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/instances/${encodeURIComponent(phone.slug)}`,
+          { restart_warming: true },
+        );
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao reiniciar aquecimento: ' + this.errMsg(e));
       } finally {
         this.busy = false;
       }
@@ -598,13 +639,13 @@ export default {
 .pd-phone { display: flex; align-items: center; gap: 12px; background: var(--wpg-panel); border: 1px solid var(--wpg-line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--wpg-shadow); flex-wrap: wrap; }
 .pd-phone--active { border-color: var(--wpg-brand); background: var(--wpg-brand-soft); }
 .pd-phone__prio { font-family: ui-monospace, monospace; font-size: 12px; color: var(--wpg-muted); background: var(--wpg-hover); padding: 4px 8px; border-radius: 6px; }
-.pd-phone__info { flex: 1; min-width: 120px; }
-.pd-phone__name { font-weight: 600; font-size: 15px; color: var(--wpg-ink); display: flex; align-items: center; gap: 8px; }
+.pd-phone__info { flex: 1 1 200px; min-width: 0; }
+.pd-phone__name { font-weight: 600; font-size: 15px; color: var(--wpg-ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px; }
 .pd-phone__slug { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; color: var(--wpg-muted); }
-.pd-tag-active { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #c4b5fd; background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; }
-.pd-tag-warming { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-warn); background: var(--wpg-warn-soft); padding: 2px 6px; border-radius: 4px; }
-.pd-tag-ramp { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-brand); background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; }
-.pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pd-tag-active { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #c4b5fd; background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex: none; }
+.pd-tag-warming { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-warn); background: var(--wpg-warn-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex: none; }
+.pd-tag-ramp { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-brand); background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex: none; }
+.pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-left: auto; justify-content: flex-end; }
 .pd-warmtoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--wpg-muted); cursor: pointer; user-select: none; padding: 0 4px; }
 .pd-warmtoggle input { cursor: pointer; margin: 0; }
 
@@ -613,6 +654,10 @@ export default {
 .pd-warming__intro { flex: 1 1 260px; min-width: 0; }
 .pd-warming__title { margin: 0; font-size: 16px; font-weight: 700; color: var(--wpg-ink); }
 .pd-warming__hint { margin: 4px 0 0; font-size: 12px; color: var(--wpg-muted); }
+.pd-warming__summary { margin: 4px 0 0; font-size: 12px; color: var(--wpg-muted); }
+.pd-collapse { display: inline-flex; align-items: center; gap: 8px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
+.pd-collapse__icon { color: var(--wpg-muted); font-size: 12px; transition: transform 0.15s ease; display: inline-block; }
+.pd-collapse__icon--open { transform: rotate(90deg); }
 .pd-warming__body { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--wpg-line); }
 .pd-warming__error { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 8px 12px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
 .pd-warming__paused { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 10px 14px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
@@ -621,18 +666,60 @@ export default {
 .pd-stat__num { font-size: 20px; font-weight: 800; color: var(--wpg-ink); line-height: 1.1; }
 .pd-stat__lbl { font-size: 11px; color: var(--wpg-muted); margin-top: 2px; }
 .pd-field--inline { margin-bottom: 0; }
-.pd-field--inline select, .pd-field--inline input { padding: 8px 10px; border: 1px solid var(--wpg-line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--wpg-bg); color: var(--wpg-ink); outline: none; }
-.pd-field--inline input[type="number"] { width: 90px; }
+.pd-field--inline select, .pd-field--inline input { padding: 9px 12px; border: 1px solid var(--wpg-line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--wpg-bg); color: var(--wpg-ink); outline: none; height: 40px; box-sizing: border-box; }
+.pd-field--inline select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.pd-field--inline input[type="number"] { width: 84px; -moz-appearance: textfield; }
+.pd-field--inline input[type="number"]::-webkit-outer-spin-button,
+.pd-field--inline input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pd-field--inline select:hover, .pd-field--inline input:hover { border-color: var(--wpg-muted); }
 .pd-field--inline select:focus, .pd-field--inline input:focus { border-color: var(--wpg-brand); box-shadow: 0 0 0 3px var(--wpg-brand-soft); }
 .pd-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--wpg-muted); cursor: pointer; user-select: none; flex-shrink: 0; }
-.pd-switch input { width: 18px; height: 18px; cursor: pointer; margin: 0; accent-color: var(--wpg-brand); }
 .pd-switch--on { color: var(--wpg-brand); }
 
 .pd-filter { margin-bottom: 10px; }
-.pd-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--wpg-muted); cursor: pointer; }
-.pd-check input { cursor: pointer; margin: 0; }
+.pd-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--wpg-muted); cursor: pointer; }
 
-.pd-status { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
+/* Checkbox customizada — substitui o estilo cru do browser em toda a tela. */
+.pd-wrap input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  border: 1.5px solid var(--wpg-line);
+  border-radius: 5px;
+  background: var(--wpg-bg);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pd-wrap input[type="checkbox"]:hover:not(:disabled) { border-color: var(--wpg-brand); }
+.pd-wrap input[type="checkbox"]:checked { background: var(--wpg-brand); border-color: var(--wpg-brand); }
+.pd-wrap input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.pd-wrap input[type="checkbox"]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--wpg-brand-soft); }
+.pd-wrap input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pd-status { flex: none; white-space: nowrap; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
 .pd-status--ok { background: var(--wpg-ok-soft); color: var(--wpg-ok); }
 .pd-status--warn { background: var(--wpg-warn-soft); color: var(--wpg-warn); }
 .pd-status--err { background: var(--wpg-err-soft); color: var(--wpg-err); }

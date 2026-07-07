@@ -37,6 +37,34 @@ function delayRange(intensity) {
   return INTENSITY_DELAY[intensity] || INTENSITY_DELAY.media;
 }
 
+// Cache de JID canônico por número. onWhatsApp é uma chamada de rede e o JID é
+// estável, então resolve uma vez por número e reusa.
+const jidCache = new Map();
+
+/** Extrai só o número do user.id do socket: '5586...:12@s.whatsapp.net' -> '5586...'. */
+function numberFromUserId(userId) {
+  return jidNormalizedUser(userId).split('@')[0].split(':')[0];
+}
+
+/**
+ * Resolve o JID canônico de `number` pela ótica de `sock` (via onWhatsApp) — a mesma
+ * rota dos envios reais (resolveTarget no index.js). Evita mandar pro JID "cru" do
+ * user.id, que cai num thread paralelo ao do número (dualidade número/LID do WhatsApp).
+ * Fallback pro JID de número puro se o onWhatsApp falhar.
+ */
+async function resolveWarmingJid(sock, number) {
+  if (jidCache.has(number)) return jidCache.get(number);
+  let jid = `${number}@s.whatsapp.net`;
+  try {
+    const res = await sock.onWhatsApp(number);
+    if (res?.[0]?.jid) jid = res[0].jid;
+  } catch (_) {
+    /* mantém o fallback */
+  }
+  jidCache.set(number, jid);
+  return jid;
+}
+
 class ProjectRunner {
   constructor(slug, config, members, ctx) {
     this.slug = slug;
@@ -148,8 +176,12 @@ class ProjectRunner {
     let senderJid;
     let receiverJid;
     try {
-      senderJid = jidNormalizedUser(senderState.sock.user.id);
-      receiverJid = jidNormalizedUser(receiverState.sock.user.id);
+      // JID canônico resolvido via onWhatsApp (mesma rota dos envios reais), pra
+      // manter uma conversa só — sem thread paralelo de LID.
+      const receiverNumber = numberFromUserId(receiverState.sock.user.id);
+      const senderNumber = numberFromUserId(senderState.sock.user.id);
+      receiverJid = await resolveWarmingJid(senderState.sock, receiverNumber);
+      senderJid = await resolveWarmingJid(receiverState.sock, senderNumber);
     } catch (_) {
       return 0;
     }

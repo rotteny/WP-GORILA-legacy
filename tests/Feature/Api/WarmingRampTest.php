@@ -153,6 +153,26 @@ class WarmingRampTest extends TestCase
         $this->assertSame(1.0, $novo->warmingRamp()['fraction']);
     }
 
+    public function test_restart_warming_resets_ramp_to_day_one(): void
+    {
+        $project = Project::factory()->create(['slug' => 'tikbot']);
+        // Chip fora da rampa (pulou o aquecimento).
+        $chip = Instance::factory()->connected()->create([
+            'slug' => 'novo', 'project_id' => $project->id,
+            'warming_started_at' => now()->subDays(20), 'warming_skip_ramp' => true,
+        ]);
+
+        $this->actingAs($this->user)
+            ->patchJson('/api/whatsapp/projects/tikbot/instances/novo', ['restart_warming' => true])
+            ->assertOk();
+
+        $chip->refresh();
+        $this->assertFalse($chip->warming_skip_ramp);
+        $ramp = $chip->warmingRamp();
+        $this->assertTrue($ramp['ramping']);
+        $this->assertSame(1, $ramp['day']);
+    }
+
     public function test_internal_projects_include_ramp_fraction(): void
     {
         $project = Project::factory()->create(['slug' => 'tikbot', 'warming_enabled' => true]);

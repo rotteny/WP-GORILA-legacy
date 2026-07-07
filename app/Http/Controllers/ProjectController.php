@@ -194,6 +194,7 @@ class ProjectController extends Controller
         $data = $request->validate([
             'warming_only'      => ['sometimes', 'boolean'],
             'warming_skip_ramp' => ['sometimes', 'boolean'], // override "Pular aquecimento"
+            'restart_warming'   => ['sometimes', 'boolean'], // recomeça a rampa do dia 1
         ]);
 
         // Ativar warming_only no telefone ativo força failover antes de setar a flag.
@@ -201,7 +202,15 @@ class ProjectController extends Controller
             $this->failover->failover($project, $instance, 'warming_only_toggle');
         }
 
-        $instance->update($data);
+        $instance->fill(array_intersect_key($data, array_flip(['warming_only', 'warming_skip_ramp'])));
+
+        // Reiniciar aquecimento: zera a rampa (começa hoje) e remove o override de skip.
+        if ($data['restart_warming'] ?? false) {
+            $instance->warming_started_at = now();
+            $instance->warming_skip_ramp = false;
+        }
+
+        $instance->save();
 
         return response()->json($project->fresh(['instances', 'activeInstance']));
     }
