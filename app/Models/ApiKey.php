@@ -17,6 +17,8 @@ class ApiKey extends Model
         'name',
         'key_prefix',
         'key_hash',
+        'hmac_secret',
+        'hostname_hint',
         'last_used_at',
         'revoked_at',
     ];
@@ -26,7 +28,7 @@ class ApiKey extends Model
         'revoked_at'   => 'datetime',
     ];
 
-    protected $hidden = ['key_hash'];
+    protected $hidden = ['key_hash', 'hmac_secret'];
 
     public function instance(): BelongsTo
     {

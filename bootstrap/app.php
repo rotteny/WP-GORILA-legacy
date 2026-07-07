@@ -13,6 +13,9 @@ return Application::configure(basePath: dirname(__DIR__))
         channels: __DIR__.'/../routes/channels.php',
         health: '/up',
     )
+    ->withCommands([
+        __DIR__.'/../app/Console/Commands',
+    ])
     ->withMiddleware(function (Middleware $middleware): void {
         // Adiciona sessão ao grupo api para que auth:web funcione nas rotas API
         $middleware->appendToGroup('api', [
@@ -23,7 +26,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Alias do middleware de API key (usado em routes/api.php no grupo /v1/*)
         $middleware->alias([
-            'api-key' => \App\Http\Middleware\ApiKeyAuth::class,
+            'api-key'    => \App\Http\Middleware\ApiKeyAuth::class,
+            'agent-auth' => \App\Http\Middleware\AgentAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

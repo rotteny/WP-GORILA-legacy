@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AgentController;
 use App\Http\Controllers\ApiKeyController;
 use App\Http\Controllers\InstanceController;
 use App\Http\Controllers\MessageController;
@@ -103,4 +104,14 @@ Route::prefix('v1/whatsapp')->middleware(['api-key', 'throttle:api-key'])->group
         Route::post('/messages/text', [MessageController::class, 'sendTextProject']);
         Route::post('/messages/media', [MessageController::class, 'sendMediaProject']);
     });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Repair Agent — endpoints consumidos pelo daemon Python no PC cockpit.
+// Auth por Bearer token de chave cockpit (api_keys com hmac_secret preenchido).
+// ───────────────────────────────────────────────────────────────────────────
+Route::prefix('whatsapp/agent')->middleware('agent-auth')->group(function () {
+    Route::get('tasks', [AgentController::class, 'tasks']);
+    Route::post('result', [AgentController::class, 'result']);
+    Route::post('heartbeat', [AgentController::class, 'heartbeat']);
 });
