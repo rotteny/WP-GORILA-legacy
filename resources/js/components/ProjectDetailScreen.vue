@@ -166,7 +166,7 @@
                     type="checkbox"
                     :checked="phone.warming_only"
                     :disabled="busy"
-                    @change="toggleWarmingOnly(phone)"
+                    @change="toggleWarmingOnly(phone, $event)"
                   />
                   <span>Só aquecimento</span>
                 </label>
@@ -539,8 +539,12 @@ export default {
 
     // Alterna o papel warming-only. Ligar num telefone que é o ativo pede confirmação
     // (vai forçar failover); nos demais casos aplica direto.
-    toggleWarmingOnly(phone) {
+    toggleWarmingOnly(phone, event) {
       const target = !phone.warming_only;
+      // O checkbox é controlado pelo modelo: reverte o toggle visual do browser na
+      // hora e deixa o estado real vir do servidor. Sem isso, cancelar a confirmação
+      // deixava o checkbox marcado (o modelo não mudava, então o Vue não corrigia).
+      if (event && event.target) event.target.checked = phone.warming_only;
       if (target && this.project.active_instance_id === phone.id) {
         this.warmingConfirm = { show: true, phone };
         return;
@@ -549,9 +553,8 @@ export default {
     },
     cancelWarming() {
       if (this.busy) return;
+      // O checkbox já foi revertido no handler; só fecha o modal.
       this.warmingConfirm = { show: false, phone: null };
-      // Re-sincroniza o checkbox (bind :checked) com o estado real do servidor.
-      this.fetchProject();
     },
     async confirmWarming() {
       const phone = this.warmingConfirm.phone;
