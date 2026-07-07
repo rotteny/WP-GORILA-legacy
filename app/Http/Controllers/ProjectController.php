@@ -49,9 +49,15 @@ class ProjectController extends Controller
     public function update(Request $request, Project $project): JsonResponse
     {
         $data = $request->validate([
-            'name'                 => ['sometimes', 'string', 'max:255'],
-            'responsible_email'    => ['sometimes', 'nullable', 'email', 'max:255'],
-            'failover_webhook_url' => ['sometimes', 'nullable', 'url', 'max:500'],
+            'name'                        => ['sometimes', 'string', 'max:255'],
+            'responsible_email'           => ['sometimes', 'nullable', 'email', 'max:255'],
+            'failover_webhook_url'        => ['sometimes', 'nullable', 'url', 'max:500'],
+            // Aquecimento (Fase 1)
+            'warming_enabled'             => ['sometimes', 'boolean'],
+            'warming_config'              => ['sometimes', 'array'],
+            'warming_config.intensity'    => ['sometimes', 'in:baixa,media,alta'],
+            'warming_config.window_start' => ['sometimes', 'integer', 'min:0', 'max:23'],
+            'warming_config.window_end'   => ['sometimes', 'integer', 'min:0', 'max:23'],
         ]);
 
         $project->update($data);
@@ -127,6 +133,8 @@ class ProjectController extends Controller
                 'name'       => $data['name'],
                 'status'     => 'INITIALIZING',
                 'priority'   => $priority,
+                // Chip novo num projeto com warming ligado começa a rampa agora.
+                'warming_started_at' => $project->warming_enabled ? now() : null,
             ]);
         }
 
@@ -163,6 +171,48 @@ class ProjectController extends Controller
                 'slug' => $slug, 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Atualiza campos por-telefone dentro do projeto. Hoje só o papel `warming_only`
+     * (chip dedicado ao aquecimento).
+     *
+     * Edge case: ativar warming_only no telefone que É o ativo do projeto força um
+     * failover imediato pro próximo chip de produção CONNECTED ANTES de setar a flag —
+     * senão o projeto ficaria com um chip de aquecimento como ativo (que não pode enviar).
+     * A confirmação com o usuário acontece na UI; aqui a troca é feita de fato.
+     */
+    public function updateInstance(Request $request, Project $project, Instance $instance): JsonResponse
+    {
+        if ($instance->project_id !== $project->id) {
+            return response()->json([
+                'ok'    => false,
+                'error' => "O telefone '{$instance->slug}' não pertence a este projeto.",
+            ], 404);
+        }
+
+        $data = $request->validate([
+            'warming_only'      => ['sometimes', 'boolean'],
+            'warming_skip_ramp' => ['sometimes', 'boolean'], // override "Pular aquecimento"
+            'restart_warming'   => ['sometimes', 'boolean'], // recomeça a rampa do dia 1
+        ]);
+
+        // Ativar warming_only no telefone ativo força failover antes de setar a flag.
+        if (($data['warming_only'] ?? false) && $project->active_instance_id === $instance->id) {
+            $this->failover->failover($project, $instance, 'warming_only_toggle');
+        }
+
+        $instance->fill(array_intersect_key($data, array_flip(['warming_only', 'warming_skip_ramp'])));
+
+        // Reiniciar aquecimento: zera a rampa (começa hoje) e remove o override de skip.
+        if ($data['restart_warming'] ?? false) {
+            $instance->warming_started_at = now();
+            $instance->warming_skip_ramp = false;
+        }
+
+        $instance->save();
+
+        return response()->json($project->fresh(['instances', 'activeInstance']));
     }
 
     /**

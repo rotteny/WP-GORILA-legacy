@@ -35,49 +35,146 @@
       </div>
 
       <template v-else-if="project">
+        <!-- Aquecimento (warming) -->
+        <section class="pd-warming">
+          <div class="pd-warming__head">
+            <div class="pd-warming__intro">
+              <button class="pd-collapse" :aria-expanded="!warmingCollapsed" @click="toggleWarmingCollapsed">
+                <span class="pd-collapse__icon" :class="{ 'pd-collapse__icon--open': !warmingCollapsed }">▸</span>
+                <span class="pd-warming__title">🔥 Aquecimento</span>
+              </button>
+              <p v-if="!warmingCollapsed" class="pd-warming__hint">
+                Os telefones conectados do projeto conversam entre si simulando conversas
+                humanas, reduzindo o risco de banimento. Precisa de ao menos 2 conectados.
+              </p>
+              <p v-else-if="warmingForm.enabled && warmingStats" class="pd-warming__summary">
+                {{ warmingStats.messages_today }} msgs hoje · {{ successPct }} sucesso ·
+                {{ warmingStats.instances_healthy }}/{{ warmingStats.instances_healthy + warmingStats.instances_offline }} conectados
+              </p>
+            </div>
+            <label class="pd-switch" :class="{ 'pd-switch--on': warmingForm.enabled }">
+              <input type="checkbox" v-model="warmingForm.enabled" :disabled="savingWarming" @change="onWarmingToggle" />
+              <span>{{ warmingForm.enabled ? 'Ligado' : 'Desligado' }}</span>
+            </label>
+          </div>
+
+          <div v-if="project.warming_paused_at" class="pd-warming__paused">
+            ⚠️ Aquecimento <strong>pausado automaticamente</strong> — um telefone caiu durante o warming.
+            <button class="pd-link" :disabled="busy" @click="resumeWarming">Reativar aquecimento</button>
+          </div>
+
+          <div v-show="!warmingCollapsed">
+          <div v-if="warmingForm.enabled && warmingStats" class="pd-warming__stats">
+            <div class="pd-stat"><span class="pd-stat__num">{{ warmingStats.messages_today }}</span><span class="pd-stat__lbl">msgs hoje</span></div>
+            <div class="pd-stat"><span class="pd-stat__num">{{ successPct }}</span><span class="pd-stat__lbl">sucesso 24h</span></div>
+            <div class="pd-stat"><span class="pd-stat__num">{{ warmingStats.instances_healthy }}/{{ warmingStats.instances_healthy + warmingStats.instances_offline }}</span><span class="pd-stat__lbl">conectados</span></div>
+            <div class="pd-stat"><span class="pd-stat__num">{{ lastWarmingLabel }}</span><span class="pd-stat__lbl">último warming</span></div>
+          </div>
+
+          <div v-if="warmingForm.enabled" class="pd-warming__body">
+            <label class="pd-field pd-field--inline">
+              <span class="pd-field__label">Intensidade</span>
+              <select v-model="warmingForm.intensity" :disabled="savingWarming">
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </select>
+            </label>
+            <label class="pd-field pd-field--inline">
+              <span class="pd-field__label">Janela — início (h)</span>
+              <input type="number" min="0" max="23" v-model.number="warmingForm.window_start" :disabled="savingWarming" />
+            </label>
+            <label class="pd-field pd-field--inline">
+              <span class="pd-field__label">Janela — fim (h)</span>
+              <input type="number" min="0" max="23" v-model.number="warmingForm.window_end" :disabled="savingWarming" />
+            </label>
+            <button class="pd-btn pd-btn--primary pd-btn--xs" :disabled="savingWarming" @click="saveWarming">
+              {{ savingWarming ? 'Salvando…' : 'Salvar' }}
+            </button>
+          </div>
+          <div v-if="warmingError" class="pd-warming__error">{{ warmingError }}</div>
+          </div>
+        </section>
+
         <div v-if="phones.length === 0" class="pd-empty">
           <h2 class="pd-empty__title">Nenhum telefone neste projeto</h2>
           <p class="pd-empty__hint">Adicione o primeiro telefone e leia o QR code para conectar.</p>
           <button class="pd-btn pd-btn--primary" @click="openAddModal">+ Novo telefone</button>
         </div>
 
-        <ul v-else class="pd-list">
-          <li
-            v-for="phone in phones"
-            :key="phone.id"
-            class="pd-phone"
-            :class="{ 'pd-phone--active': project.active_instance_id === phone.id }"
-          >
-            <span class="pd-phone__prio">#{{ phone.priority }}</span>
-            <div class="pd-phone__info">
-              <div class="pd-phone__name">
-                {{ phone.name }}
-                <span v-if="project.active_instance_id === phone.id" class="pd-tag-active">ATIVO</span>
+        <template v-else>
+          <div v-if="hasWarmingOnly" class="pd-filter">
+            <label class="pd-check">
+              <input type="checkbox" v-model="showWarmingOnly" />
+              Mostrar telefones de aquecimento
+            </label>
+          </div>
+
+          <ul class="pd-list">
+            <li
+              v-for="phone in visiblePhones"
+              :key="phone.id"
+              class="pd-phone"
+              :class="{ 'pd-phone--active': project.active_instance_id === phone.id }"
+            >
+              <span class="pd-phone__prio">#{{ phone.priority }}</span>
+              <div class="pd-phone__info">
+                <div class="pd-phone__name">
+                  {{ phone.name }}
+                  <span v-if="project.active_instance_id === phone.id" class="pd-tag-active">ATIVO</span>
+                  <span v-if="phone.warming_only" class="pd-tag-warming" title="Chip dedicado ao aquecimento — não envia mensagens externas">🔥 aquecimento</span>
+                  <span
+                    v-if="phone.warming_ramp && phone.warming_ramp.ramping"
+                    class="pd-tag-ramp"
+                    title="Chip novo em aquecimento gradual — assume tráfego real só ao fim da rampa"
+                  >Aquecendo (dia {{ phone.warming_ramp.day }}/{{ phone.warming_ramp.total_days }})</span>
+                </div>
+                <div class="pd-phone__slug">{{ phone.slug }}</div>
               </div>
-              <div class="pd-phone__slug">{{ phone.slug }}</div>
-            </div>
-            <span class="pd-status" :class="statusClass(phone.status)">{{ statusLabel(phone.status) }}</span>
-            <div class="pd-phone__actions">
-              <a
-                v-if="phone.status !== 'CONNECTED'"
-                :href="`/p/${encodeURIComponent(phone.slug)}/qr${backSuffix}`"
-                class="pd-btn pd-btn--xs pd-btn--primary"
-              >Ler QR</a>
-              <a
-                v-else
-                :href="`/p/${encodeURIComponent(phone.slug)}/chat${backSuffix}`"
-                class="pd-btn pd-btn--xs pd-btn--ghost"
-              >Abrir chat</a>
-              <button
-                v-if="project.active_instance_id !== phone.id"
-                class="pd-btn pd-btn--xs pd-btn--ghost"
-                :disabled="busy"
-                @click="promote(phone)"
-              >Tornar ativo</button>
-              <button class="pd-btn pd-btn--xs pd-btn--danger" :disabled="busy" @click="removePhone(phone)">Remover</button>
-            </div>
-          </li>
-        </ul>
+              <span class="pd-status" :class="statusClass(phone.status)">{{ statusLabel(phone.status) }}</span>
+              <div class="pd-phone__actions">
+                <a
+                  v-if="phone.status !== 'CONNECTED'"
+                  :href="`/p/${encodeURIComponent(phone.slug)}/qr${backSuffix}`"
+                  class="pd-btn pd-btn--xs pd-btn--primary"
+                >Ler QR</a>
+                <a
+                  v-else
+                  :href="`/p/${encodeURIComponent(phone.slug)}/chat${backSuffix}`"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                >Abrir chat</a>
+                <button
+                  v-if="project.active_instance_id !== phone.id && !phone.warming_only"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                  :disabled="busy"
+                  @click="promote(phone)"
+                >Tornar ativo</button>
+                <button
+                  v-if="phone.warming_ramp && phone.warming_ramp.ramping"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                  :disabled="busy"
+                  @click="skipRamp(phone)"
+                >Pular aquecimento</button>
+                <button
+                  v-else-if="!phone.warming_only"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                  :disabled="busy"
+                  @click="restartWarming(phone)"
+                >Reiniciar aquecimento</button>
+                <label class="pd-warmtoggle" title="Usar este telefone apenas para aquecimento">
+                  <input
+                    type="checkbox"
+                    :checked="phone.warming_only"
+                    :disabled="busy"
+                    @change="toggleWarmingOnly(phone, $event)"
+                  />
+                  <span>Só aquecimento</span>
+                </label>
+                <button class="pd-btn pd-btn--xs pd-btn--danger" :disabled="busy" @click="removePhone(phone)">Remover</button>
+              </div>
+            </li>
+          </ul>
+        </template>
       </template>
     </div>
 
@@ -98,6 +195,22 @@
             <button type="submit" class="pd-btn pd-btn--primary" :disabled="savingSettings">{{ savingSettings ? 'Salvando…' : 'Salvar' }}</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal: confirmar dedicar ao aquecimento um telefone que é o ativo -->
+    <div v-if="warmingConfirm.show" class="pd-modal" @click.self="cancelWarming">
+      <div class="pd-modal__card">
+        <h2 class="pd-modal__title">Dedicar ao aquecimento?</h2>
+        <p class="pd-modal__hint">
+          Esta instância está sendo usada como telefone ativo do projeto no momento.
+          Ativar aquecimento-apenas vai forçar uma troca imediata para o próximo chip de
+          produção CONNECTED. Deseja continuar?
+        </p>
+        <div class="pd-modal__actions">
+          <button type="button" class="pd-btn pd-btn--ghost" :disabled="busy" @click="cancelWarming">Cancelar</button>
+          <button type="button" class="pd-btn pd-btn--primary" :disabled="busy" @click="confirmWarming">Continuar</button>
+        </div>
       </div>
     </div>
 
@@ -165,12 +278,43 @@ export default {
       savingSettings: false,
       settingsError: '',
       settingsForm: { responsible_email: '' },
+
+      showWarmingOnly: true, // filtro: padrão mostra todos os telefones
+      warmingConfirm: { show: false, phone: null },
+
+      // Card de aquecimento. Sincronizado do projeto uma vez (não é sobrescrito
+      // pelo polling pra não atropelar edição em andamento).
+      warmingForm: { enabled: false, intensity: 'media', window_start: 8, window_end: 22 },
+      warmingInit: false,
+      savingWarming: false,
+      warmingError: '',
+      warmingStats: null,
+      warmingCollapsed: false, // dashboard retrátil (persistido por projeto)
     };
   },
 
   computed: {
     phones() {
       return this.project?.instances || [];
+    },
+    // Lista renderizada respeitando o filtro "mostrar telefones de aquecimento".
+    visiblePhones() {
+      return this.showWarmingOnly ? this.phones : this.phones.filter((p) => !p.warming_only);
+    },
+    hasWarmingOnly() {
+      return this.phones.some((p) => p.warming_only);
+    },
+    successPct() {
+      const r = this.warmingStats?.success_rate_24h;
+      return r == null ? '—' : Math.round(r * 100) + '%';
+    },
+    lastWarmingLabel() {
+      const t = this.warmingStats?.last_warming_at;
+      if (!t) return '—';
+      return new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    },
+    warmingCollapseKey() {
+      return `wpg-warming-collapsed-${this.projectSlug}`;
     },
     // Repassado às telas de QR/chat pra que o "voltar" retorne a este projeto.
     backSuffix() {
@@ -179,6 +323,7 @@ export default {
   },
 
   mounted() {
+    this.warmingCollapsed = localStorage.getItem(this.warmingCollapseKey) === '1';
     this.fetchProject();
     this.pollHandle = setInterval(this.fetchProject, POLL_MS);
   },
@@ -193,6 +338,13 @@ export default {
         const { data } = await axios.get(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}`);
         this.project = data;
         this.notFound = false;
+        if (!this.warmingInit) {
+          this.syncWarmingForm();
+          this.warmingInit = true;
+        }
+        if (this.project.warming_enabled || this.project.warming_paused_at) {
+          this.fetchWarmingStats();
+        }
       } catch (e) {
         if (e?.response?.status === 404) this.notFound = true;
         else console.error('Erro ao carregar projeto:', e);
@@ -287,6 +439,144 @@ export default {
         this.busy = false;
       }
     },
+    // Preenche o formulário de aquecimento a partir do projeto carregado.
+    syncWarmingForm() {
+      const c = this.project?.warming_config || {};
+      this.warmingForm = {
+        enabled: !!this.project?.warming_enabled,
+        intensity: c.intensity || 'media',
+        window_start: c.window_start ?? 8,
+        window_end: c.window_end ?? 22,
+      };
+    },
+    // Ligar/desligar persiste na hora (o engine liga/desliga em < 1min).
+    onWarmingToggle() {
+      this.saveWarming();
+    },
+    async saveWarming() {
+      this.warmingError = '';
+      const ws = Number(this.warmingForm.window_start);
+      const we = Number(this.warmingForm.window_end);
+      if (!Number.isInteger(ws) || ws < 0 || ws > 23 || !Number.isInteger(we) || we < 0 || we > 23) {
+        this.warmingError = 'A janela horária deve estar entre 0 e 23.';
+        return;
+      }
+      this.savingWarming = true;
+      try {
+        await axios.patch(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}`, {
+          warming_enabled: this.warmingForm.enabled,
+          warming_config: { intensity: this.warmingForm.intensity, window_start: ws, window_end: we },
+        });
+        await this.fetchProject();
+        this.syncWarmingForm(); // reflete o que o servidor gravou
+      } catch (e) {
+        this.warmingError = this.errMsg(e, 'Falha ao salvar o aquecimento.');
+        await this.fetchProject();
+        this.syncWarmingForm(); // volta o toggle ao estado real em caso de erro
+      } finally {
+        this.savingWarming = false;
+      }
+    },
+
+    toggleWarmingCollapsed() {
+      this.warmingCollapsed = !this.warmingCollapsed;
+      localStorage.setItem(this.warmingCollapseKey, this.warmingCollapsed ? '1' : '0');
+    },
+    async fetchWarmingStats() {
+      try {
+        const { data } = await axios.get(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/warming-stats`);
+        this.warmingStats = data;
+      } catch (e) {
+        /* stats são best-effort; não quebram a tela */
+      }
+    },
+    async resumeWarming() {
+      if (!window.confirm('Reativar o aquecimento deste projeto? Confirme que o telefone que caiu já foi resolvido.')) return;
+      this.busy = true;
+      try {
+        await axios.post(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/warming-resume`);
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao reativar: ' + this.errMsg(e));
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // Reinicia a rampa do chip (começa do dia 1) e remove o override de skip.
+    async restartWarming(phone) {
+      if (!window.confirm(`Reiniciar o aquecimento de '${phone.name}'? A rampa recomeça do dia 1 (20%).`)) return;
+      this.busy = true;
+      try {
+        await axios.patch(
+          `/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/instances/${encodeURIComponent(phone.slug)}`,
+          { restart_warming: true },
+        );
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao reiniciar aquecimento: ' + this.errMsg(e));
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // Override "Pular aquecimento": chip vai direto pra 100%, sai da rampa.
+    async skipRamp(phone) {
+      if (!window.confirm(`Pular o aquecimento de '${phone.name}'? Ele passa a operar em 100% imediatamente.`)) return;
+      this.busy = true;
+      try {
+        await axios.patch(
+          `/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/instances/${encodeURIComponent(phone.slug)}`,
+          { warming_skip_ramp: true },
+        );
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao pular aquecimento: ' + this.errMsg(e));
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // Alterna o papel warming-only. Ligar num telefone que é o ativo pede confirmação
+    // (vai forçar failover); nos demais casos aplica direto.
+    toggleWarmingOnly(phone, event) {
+      const target = !phone.warming_only;
+      // O checkbox é controlado pelo modelo: reverte o toggle visual do browser na
+      // hora e deixa o estado real vir do servidor. Sem isso, cancelar a confirmação
+      // deixava o checkbox marcado (o modelo não mudava, então o Vue não corrigia).
+      if (event && event.target) event.target.checked = phone.warming_only;
+      if (target && this.project.active_instance_id === phone.id) {
+        this.warmingConfirm = { show: true, phone };
+        return;
+      }
+      this.setWarmingOnly(phone, target);
+    },
+    cancelWarming() {
+      if (this.busy) return;
+      // O checkbox já foi revertido no handler; só fecha o modal.
+      this.warmingConfirm = { show: false, phone: null };
+    },
+    async confirmWarming() {
+      const phone = this.warmingConfirm.phone;
+      this.warmingConfirm = { show: false, phone: null };
+      if (phone) await this.setWarmingOnly(phone, true);
+    },
+    async setWarmingOnly(phone, value) {
+      this.busy = true;
+      try {
+        await axios.patch(
+          `/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/instances/${encodeURIComponent(phone.slug)}`,
+          { warming_only: value },
+        );
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao atualizar aquecimento: ' + this.errMsg(e));
+        await this.fetchProject(); // volta o checkbox ao estado real
+      } finally {
+        this.busy = false;
+      }
+    },
+
     async removePhone(phone) {
       if (!window.confirm(`Apagar o telefone '${phone.name}'? A sessão do WhatsApp é encerrada e o número sai do projeto.`)) return;
       this.busy = true;
@@ -352,13 +642,87 @@ export default {
 .pd-phone { display: flex; align-items: center; gap: 12px; background: var(--wpg-panel); border: 1px solid var(--wpg-line); border-radius: 12px; padding: 14px 16px; box-shadow: var(--wpg-shadow); flex-wrap: wrap; }
 .pd-phone--active { border-color: var(--wpg-brand); background: var(--wpg-brand-soft); }
 .pd-phone__prio { font-family: ui-monospace, monospace; font-size: 12px; color: var(--wpg-muted); background: var(--wpg-hover); padding: 4px 8px; border-radius: 6px; }
-.pd-phone__info { flex: 1; min-width: 120px; }
-.pd-phone__name { font-weight: 600; font-size: 15px; color: var(--wpg-ink); display: flex; align-items: center; gap: 8px; }
+.pd-phone__info { flex: 1 1 200px; min-width: 0; }
+.pd-phone__name { font-weight: 600; font-size: 15px; color: var(--wpg-ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 4px; }
 .pd-phone__slug { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; color: var(--wpg-muted); }
-.pd-tag-active { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #c4b5fd; background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; }
-.pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pd-tag-active { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #c4b5fd; background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex: none; }
+.pd-tag-warming { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-warn); background: var(--wpg-warn-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex: none; }
+.pd-tag-ramp { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-brand); background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex: none; }
+.pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-left: auto; justify-content: flex-end; }
+.pd-warmtoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--wpg-muted); cursor: pointer; user-select: none; padding: 0 4px; }
+.pd-warmtoggle input { cursor: pointer; margin: 0; }
 
-.pd-status { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
+.pd-warming { background: var(--wpg-panel); border: 1px solid var(--wpg-line); border-radius: 12px; padding: 16px 18px; box-shadow: var(--wpg-shadow); margin-bottom: 20px; }
+.pd-warming__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pd-warming__intro { flex: 1 1 260px; min-width: 0; }
+.pd-warming__title { margin: 0; font-size: 16px; font-weight: 700; color: var(--wpg-ink); }
+.pd-warming__hint { margin: 4px 0 0; font-size: 12px; color: var(--wpg-muted); }
+.pd-warming__summary { margin: 4px 0 0; font-size: 12px; color: var(--wpg-muted); }
+.pd-collapse { display: inline-flex; align-items: center; gap: 8px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
+.pd-collapse__icon { color: var(--wpg-muted); font-size: 12px; transition: transform 0.15s ease; display: inline-block; }
+.pd-collapse__icon--open { transform: rotate(90deg); }
+.pd-warming__body { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--wpg-line); }
+.pd-warming__error { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 8px 12px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
+.pd-warming__paused { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 10px 14px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
+.pd-warming__stats { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--wpg-line); }
+.pd-stat { display: flex; flex-direction: column; }
+.pd-stat__num { font-size: 20px; font-weight: 800; color: var(--wpg-ink); line-height: 1.1; }
+.pd-stat__lbl { font-size: 11px; color: var(--wpg-muted); margin-top: 2px; }
+.pd-field--inline { margin-bottom: 0; }
+.pd-field--inline select, .pd-field--inline input { padding: 9px 12px; border: 1px solid var(--wpg-line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--wpg-bg); color: var(--wpg-ink); outline: none; height: 40px; box-sizing: border-box; }
+.pd-field--inline select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.pd-field--inline input[type="number"] { width: 84px; -moz-appearance: textfield; }
+.pd-field--inline input[type="number"]::-webkit-outer-spin-button,
+.pd-field--inline input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.pd-field--inline select:hover, .pd-field--inline input:hover { border-color: var(--wpg-muted); }
+.pd-field--inline select:focus, .pd-field--inline input:focus { border-color: var(--wpg-brand); box-shadow: 0 0 0 3px var(--wpg-brand-soft); }
+.pd-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--wpg-muted); cursor: pointer; user-select: none; flex-shrink: 0; }
+.pd-switch--on { color: var(--wpg-brand); }
+
+.pd-filter { margin-bottom: 10px; }
+.pd-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--wpg-muted); cursor: pointer; }
+
+/* Checkbox customizada — substitui o estilo cru do browser em toda a tela. */
+.pd-wrap input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  border: 1.5px solid var(--wpg-line);
+  border-radius: 5px;
+  background: var(--wpg-bg);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.pd-wrap input[type="checkbox"]:hover:not(:disabled) { border-color: var(--wpg-brand); }
+.pd-wrap input[type="checkbox"]:checked { background: var(--wpg-brand); border-color: var(--wpg-brand); }
+.pd-wrap input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.pd-wrap input[type="checkbox"]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--wpg-brand-soft); }
+.pd-wrap input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pd-status { flex: none; white-space: nowrap; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 12px; }
 .pd-status--ok { background: var(--wpg-ok-soft); color: var(--wpg-ok); }
 .pd-status--warn { background: var(--wpg-warn-soft); color: var(--wpg-warn); }
 .pd-status--err { background: var(--wpg-err-soft); color: var(--wpg-err); }

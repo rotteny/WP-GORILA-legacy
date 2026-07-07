@@ -214,8 +214,29 @@ class WhatsAppController extends Controller
                 app(ProjectFailoverService::class)->failover($project, $instance, 'logged_out');
             }
 
-            // Primeiro telefone a conectar vira o ativo automaticamente.
-            if ($project && $instance->status === 'CONNECTED' && $project->active_instance_id === null) {
+            // Circuit breaker de projeto (Fase 4): um telefone caindo durante o warming
+            // pode sinalizar que o padrão foi detectado. Por segurança, pausa o warming
+            // do projeto TODO (reativação é manual pelo painel) e avisa o responsável.
+            if ($project && $instance->status === 'LOGGED_OUT'
+                && $project->warming_enabled && ! $project->warming_paused_at) {
+                $project->forceFill(['warming_paused_at' => now()])->save();
+                Log::warning('Warming pausado: telefone caiu durante aquecimento', [
+                    'project'  => $project->slug,
+                    'instance' => $instance->slug,
+                ]);
+                if ($project->responsible_email) {
+                    try {
+                        \Illuminate\Support\Facades\Mail::to($project->responsible_email)
+                            ->send(new \App\Mail\WarmingPausedAlert($project, $instance->slug));
+                    } catch (\Throwable $e) {
+                        Log::warning('Falha ao enviar alerta de warming pausado', ['error' => $e->getMessage()]);
+                    }
+                }
+            }
+
+            // Primeiro telefone a conectar vira o ativo automaticamente. Chip
+            // warming-only nunca vira ativo, então fica de fora dessa promoção.
+            if ($project && $instance->status === 'CONNECTED' && !$instance->warming_only && $project->active_instance_id === null) {
                 app(ProjectFailoverService::class)->promote($project, $instance);
             }
         }

@@ -5,12 +5,21 @@ use App\Http\Controllers\InstanceController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\WebhookConfigController;
+use App\Http\Controllers\WarmingController;
 use App\Http\Controllers\WhatsAppController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('whatsapp')->group(function () {
     // Público — chamado pelo Node.js interno
     Route::post('/webhook', [WhatsAppController::class, 'webhook']);
+
+    // Aquecimento — endpoints INTERNOS (rede Docker; sem API key). O whatsapp-service
+    // pega os projetos elegíveis e reporta os eventos de warming por aqui.
+    Route::get('/internal/warming-projects', [WarmingController::class, 'projects']);
+    Route::post('/internal/warming-events', [WarmingController::class, 'storeEvent']);
+
+    // Métricas do aquecimento em formato Prometheus (scraping interno).
+    Route::get('/metrics/warming', [WarmingController::class, 'metrics']);
 
     Route::middleware('auth:web')->group(function () {
         Route::get('/instances', [InstanceController::class, 'index']);
@@ -34,10 +43,18 @@ Route::prefix('whatsapp')->group(function () {
         // Cria um telefone novo já dentro do projeto (cria sessão no whatsapp-service).
         Route::post('/projects/{project}/instances', [ProjectController::class, 'createInstance']);
         Route::delete('/projects/{project}/instances/{instance}', [ProjectController::class, 'deleteInstance']);
+        Route::patch('/projects/{project}/instances/{instance}', [ProjectController::class, 'updateInstance']);
         Route::post('/projects/{project}/instances/{instance}/promote', [ProjectController::class, 'promote']);
+        // Histórico de aquecimento do projeto (consulta pelo painel).
+        Route::get('/projects/{project}/warming-events', [WarmingController::class, 'events']);
+        // Dashboard de stats e reativação manual do warming pausado (circuit breaker).
+        Route::get('/projects/{project}/warming-stats', [WarmingController::class, 'stats']);
+        Route::post('/projects/{project}/warming-resume', [WarmingController::class, 'resume']);
 
         Route::prefix('instances/{instance}')->group(function () {
             Route::get('/status', [WhatsAppController::class, 'getStatus']);
+            // Fase da rampa de aquecimento do chip ("Aquecendo (dia X/14)").
+            Route::get('/warming-status', [WarmingController::class, 'status']);
             Route::post('/reset', [WhatsAppController::class, 'reset']);
             Route::post('/pair-code', [WhatsAppController::class, 'pairCode']);
             Route::post('/send-message', [WhatsAppController::class, 'sendMessage']);

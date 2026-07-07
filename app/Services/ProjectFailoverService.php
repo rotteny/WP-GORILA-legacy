@@ -37,6 +37,14 @@ class ProjectFailoverService
             );
         }
 
+        // Chip warming-only existe só pra dar corpo ao aquecimento; nunca pode ser o
+        // telefone ativo do projeto (por onde saem as mensagens reais).
+        if ($instance->warming_only) {
+            throw new \InvalidArgumentException(
+                'Não é possível promover uma instância dedicada a aquecimento.'
+            );
+        }
+
         return DB::transaction(function () use ($project, $instance) {
             $project->forceFill(['active_instance_id' => $instance->id])->save();
 
@@ -53,11 +61,16 @@ class ProjectFailoverService
      */
     public function failover(Project $project, ?Instance $failed = null, string $reason = 'unknown'): ?Instance
     {
-        $next = $project->instances()
+        // Candidatos: CONNECTED, não warming-only, diferentes do que caiu, por prioridade.
+        $candidates = fn () => $project->instances()
             ->where('status', 'CONNECTED')
+            ->where('warming_only', false) // chip de aquecimento nunca vira ativo
             ->when($failed, fn ($q) => $q->where('id', '!=', $failed->id))
-            ->orderBy('priority')
-            ->first();
+            ->orderBy('priority');
+
+        // Prefere um chip que já completou a rampa; só cai num chip ainda em
+        // aquecimento se não houver nenhum pronto (melhor enviar do que ficar sem).
+        $next = $candidates()->fullyRamped()->first() ?? $candidates()->first();
 
         if (!$next) {
             $this->notify($project, $failed, null, $reason);

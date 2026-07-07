@@ -11,6 +11,13 @@ class Project extends Model
 {
     use HasFactory;
 
+    /** Config default do aquecimento quando warming_config é null. */
+    public const WARMING_DEFAULTS = [
+        'intensity'    => 'media', // baixa | media | alta
+        'window_start' => 8,       // hora do dia (0-23) em que o aquecimento pode rodar
+        'window_end'   => 22,
+    ];
+
     protected $fillable = [
         'slug',
         'name',
@@ -18,9 +25,24 @@ class Project extends Model
         'active_instance_id',
         'failover_webhook_url',
         'failover_webhook_secret',
+        'warming_enabled',
+        'warming_config',
+        'warming_paused_at',
     ];
 
     protected $hidden = ['failover_webhook_secret'];
+
+    protected $casts = [
+        'warming_enabled'   => 'boolean',
+        'warming_config'    => 'array',
+        'warming_paused_at' => 'datetime',
+    ];
+
+    /** Config efetiva do aquecimento: defaults sobrescritos pelo que o projeto salvou. */
+    public function effectiveWarmingConfig(): array
+    {
+        return array_merge(self::WARMING_DEFAULTS, $this->warming_config ?? []);
+    }
 
     public function getRouteKeyName(): string
     {
@@ -41,5 +63,13 @@ class Project extends Model
     public function activeInstance(): BelongsTo
     {
         return $this->belongsTo(Instance::class, 'active_instance_id');
+    }
+
+    /**
+     * Histórico de mensagens de aquecimento trocadas entre as instâncias do projeto.
+     */
+    public function warmingEvents(): HasMany
+    {
+        return $this->hasMany(WarmingEvent::class);
     }
 }

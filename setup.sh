@@ -108,12 +108,33 @@ if [ -n "$WA_RUNNING" ]; then
   yellow "    whatsapp-service já rodando — recriando com imagem atualizada."
   docker stop whatsapp-service && docker rm whatsapp-service
 fi
+# O Node entrega webhook e consulta o warming no Laravel via nginx. Com Host "nginx"
+# a requisição cai num vhost errado do laradock (não há default_server) => 404 em
+# TUDO (webhook de conexão + /internal/warming-*). Mapeamos APP_HOST -> IP do nginx
+# e mandamos o webhook por esse host, que casa o vhost certo (wp.local por padrão).
+NET="$(basename "$LARADOCK_DIR")_backend"
+APP_HOST="${WPG_APP_HOST:-wp.local}"
+NGINX_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i nginx | head -1 || true)
+NGINX_IP=""
+if [ -n "$NGINX_CONTAINER" ]; then
+  NGINX_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}" "$NGINX_CONTAINER" 2>/dev/null || true)
+fi
+ADD_HOST=""
+if [ -n "$NGINX_IP" ]; then
+  ADD_HOST="--add-host $APP_HOST:$NGINX_IP"
+else
+  yellow "    aviso: IP do nginx não resolvido na rede $NET — o webhook/warming pode dar 404 (Host errado)."
+fi
+
+# shellcheck disable=SC2086  # $ADD_HOST precisa de word-splitting (vira 2 args ou vazio)
 docker run -d \
   --name whatsapp-service \
-  --network "$(basename "$LARADOCK_DIR")_backend" \
+  --network "$NET" \
+  $ADD_HOST \
+  -e LARAVEL_WEBHOOK_URL="http://$APP_HOST/api/whatsapp/webhook" \
   -v "$ROOT/whatsapp-service/auth_info:/usr/src/app/auth_info" \
   whatsapp-service:local
-green "    whatsapp-service iniciado."
+green "    whatsapp-service iniciado (webhook -> http://$APP_HOST)."
 
 if [ -z "$REVERB_RUNNING" ]; then
   cd "$LARADOCK_DIR"
