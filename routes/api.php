@@ -18,6 +18,9 @@ Route::prefix('whatsapp')->group(function () {
     Route::get('/internal/warming-projects', [WarmingController::class, 'projects']);
     Route::post('/internal/warming-events', [WarmingController::class, 'storeEvent']);
 
+    // Métricas do aquecimento em formato Prometheus (scraping interno).
+    Route::get('/metrics/warming', [WarmingController::class, 'metrics']);
+
     Route::middleware('auth:web')->group(function () {
         Route::get('/instances', [InstanceController::class, 'index']);
         Route::post('/instances', [InstanceController::class, 'store']);
@@ -44,6 +47,9 @@ Route::prefix('whatsapp')->group(function () {
         Route::post('/projects/{project}/instances/{instance}/promote', [ProjectController::class, 'promote']);
         // Histórico de aquecimento do projeto (consulta pelo painel).
         Route::get('/projects/{project}/warming-events', [WarmingController::class, 'events']);
+        // Dashboard de stats e reativação manual do warming pausado (circuit breaker).
+        Route::get('/projects/{project}/warming-stats', [WarmingController::class, 'stats']);
+        Route::post('/projects/{project}/warming-resume', [WarmingController::class, 'resume']);
 
         Route::prefix('instances/{instance}')->group(function () {
             Route::get('/status', [WhatsAppController::class, 'getStatus']);

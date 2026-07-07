@@ -31,6 +31,7 @@ class WarmingController extends Controller
     {
         $projects = Project::query()
             ->where('warming_enabled', true)
+            ->whereNull('warming_paused_at') // projeto pausado (circuit breaker) sai da lista
             ->with(['instances' => fn ($q) => $q->where('status', 'CONNECTED')])
             ->get()
             ->map(fn (Project $p) => [
@@ -60,7 +61,7 @@ class WarmingController extends Controller
             'sender'    => ['required', 'string'],
             'receiver'  => ['required', 'string'],
             'script_id' => ['nullable', 'string'],
-            'status'    => ['required', 'in:sent,failed'],
+            'status'    => ['required', 'in:sent,failed,circuit_open'],
             'error'     => ['nullable', 'string'],
         ]);
 
@@ -120,5 +121,90 @@ class WarmingController extends Controller
             'total_days'         => $ramp['total_days'],
             'fraction'           => $ramp['fraction'],
         ]);
+    }
+
+    /**
+     * Stats do aquecimento do projeto pro dashboard: mensagens hoje, último warming,
+     * taxa de sucesso (24h) e instâncias saudáveis vs offline. Consulta leve (counts).
+     */
+    public function stats(Project $project): JsonResponse
+    {
+        $events = $project->warmingEvents();
+
+        $today = (clone $events)->where('status', 'sent')->whereDate('sent_at', today())->count();
+        $last = (clone $events)->max('sent_at');
+
+        $sent24 = (clone $events)->where('status', 'sent')->where('sent_at', '>=', now()->subDay())->count();
+        $failed24 = (clone $events)->where('status', 'failed')->where('sent_at', '>=', now()->subDay())->count();
+        $total24 = $sent24 + $failed24;
+        $successRate = $total24 > 0 ? round($sent24 / $total24, 3) : null;
+
+        $instances = $project->instances;
+        $healthy = $instances->where('status', 'CONNECTED')->count();
+
+        return response()->json([
+            'project'         => $project->slug,
+            'enabled'         => (bool) $project->warming_enabled,
+            'paused_at'       => $project->warming_paused_at,
+            'messages_today'  => $today,
+            'last_warming_at' => $last,
+            'success_rate_24h' => $successRate,
+            'sent_24h'        => $sent24,
+            'failed_24h'      => $failed24,
+            'instances_healthy' => $healthy,
+            'instances_offline' => $instances->count() - $healthy,
+        ]);
+    }
+
+    /**
+     * Reativa manualmente o aquecimento de um projeto que foi pausado pelo circuit
+     * breaker (limpa warming_paused_at). Ação do painel.
+     */
+    public function resume(Project $project): JsonResponse
+    {
+        $project->forceFill(['warming_paused_at' => null])->save();
+
+        return response()->json($project->fresh(['instances', 'activeInstance']));
+    }
+
+    /**
+     * Métricas do aquecimento em formato Prometheus (text/plain). Endpoint interno
+     * pra scraping (futuro Grafana). Sem autenticação (rede interna).
+     */
+    public function metrics(): \Illuminate\Http\Response
+    {
+        $slugById = Project::pluck('slug', 'id');
+
+        $byProject = WarmingEvent::query()
+            ->selectRaw('project_id, status, COUNT(*) as c')
+            ->whereIn('status', ['sent', 'failed'])
+            ->groupBy('project_id', 'status')
+            ->get();
+
+        $activeInstances = Instance::query()
+            ->where('status', 'CONNECTED')
+            ->whereHas('project', fn ($q) => $q->where('warming_enabled', true)->whereNull('warming_paused_at'))
+            ->count();
+
+        $circuitOpen = WarmingEvent::where('status', 'circuit_open')->count();
+
+        $lines = [];
+        $lines[] = '# HELP warming_messages_sent_total Total de mensagens de aquecimento por projeto e status';
+        $lines[] = '# TYPE warming_messages_sent_total counter';
+        foreach ($byProject as $row) {
+            $slug = $slugById[$row->project_id] ?? 'unknown';
+            $lines[] = sprintf('warming_messages_sent_total{project="%s",status="%s"} %d', $slug, $row->status, $row->c);
+        }
+
+        $lines[] = '# HELP warming_instances_active Instâncias CONNECTED em projetos com warming ativo';
+        $lines[] = '# TYPE warming_instances_active gauge';
+        $lines[] = "warming_instances_active {$activeInstances}";
+
+        $lines[] = '# HELP warming_circuit_open_total Total de aberturas de circuit breaker';
+        $lines[] = '# TYPE warming_circuit_open_total counter';
+        $lines[] = "warming_circuit_open_total {$circuitOpen}";
+
+        return response(implode("\n", $lines) . "\n", 200)
+            ->header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
     }
 }

@@ -75,17 +75,23 @@ class ProjectRunner {
 
   /** Membros que estão vivos e CONNECTED agora (re-checa o estado ao vivo). */
   _liveConnected() {
+    const health = this.ctx.health;
     return this.members
       .map((m) => {
         const st = this.ctx.instances.get(m.slug);
-        return st && st.status === 'CONNECTED' && st.sock
-          ? {
-              slug: m.slug,
-              warming_only: !!m.warming_only,
-              // Fração da rampa (Fase 3): 0.2..1.0; default 1 pra chip sem rampa.
-              ramp_fraction: typeof m.ramp_fraction === 'number' ? m.ramp_fraction : 1,
-            }
-          : null;
+        const status = st?.status;
+        if (health) health.observe(m.slug, status); // detecta reconexão (cool-down)
+
+        // Fora do pool se: não conectado, sem sock, circuito aberto ou em cool-down.
+        if (!st || status !== 'CONNECTED' || !st.sock) return null;
+        if (health && health.isPaused(m.slug)) return null;
+
+        return {
+          slug: m.slug,
+          warming_only: !!m.warming_only,
+          // Fração da rampa (Fase 3): 0.2..1.0; default 1 pra chip sem rampa.
+          ramp_fraction: typeof m.ramp_fraction === 'number' ? m.ramp_fraction : 1,
+        };
       })
       .filter(Boolean);
   }
@@ -209,6 +215,11 @@ class ProjectRunner {
       } catch (err) {
         await this._report({ sender: roleSlug[speaker], receiver: roleSlug[listener], script_id: firstScript.id, status: 'failed', error: err.message });
         this.ctx.logger.warn({ project: this.slug, err: err.message }, 'warming: falha no envio');
+
+        // Circuit breaker (Fase 4): 3 erros em 5min no mesmo chip → pausa 30min.
+        if (this.ctx.health && this.ctx.health.recordError(roleSlug[speaker])) {
+          await this._report({ sender: roleSlug[speaker], receiver: roleSlug[listener], script_id: firstScript.id, status: 'circuit_open' });
+        }
         break; // provavelmente desconectou; encerra a thread
       }
 

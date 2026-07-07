@@ -16,12 +16,16 @@
 'use strict';
 
 const Scheduler = require('./scheduler');
+const { Health } = require('./health');
 
 function startWarming(ctx) {
   if (process.env.WARMING_DISABLED === '1') {
     ctx.logger.info('warming: desabilitado (WARMING_DISABLED=1)');
     return null;
   }
+
+  // Circuit breaker + cool-down de reconexão, compartilhado por todos os runners.
+  ctx.health = new Health(ctx.logger);
 
   const scheduler = new Scheduler(ctx);
   scheduler.start();

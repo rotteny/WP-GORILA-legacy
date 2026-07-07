@@ -51,6 +51,18 @@
             </label>
           </div>
 
+          <div v-if="project.warming_paused_at" class="pd-warming__paused">
+            ⚠️ Aquecimento <strong>pausado automaticamente</strong> — um telefone caiu durante o warming.
+            <button class="pd-link" :disabled="busy" @click="resumeWarming">Reativar aquecimento</button>
+          </div>
+
+          <div v-if="warmingForm.enabled && warmingStats" class="pd-warming__stats">
+            <div class="pd-stat"><span class="pd-stat__num">{{ warmingStats.messages_today }}</span><span class="pd-stat__lbl">msgs hoje</span></div>
+            <div class="pd-stat"><span class="pd-stat__num">{{ successPct }}</span><span class="pd-stat__lbl">sucesso 24h</span></div>
+            <div class="pd-stat"><span class="pd-stat__num">{{ warmingStats.instances_healthy }}/{{ warmingStats.instances_healthy + warmingStats.instances_offline }}</span><span class="pd-stat__lbl">conectados</span></div>
+            <div class="pd-stat"><span class="pd-stat__num">{{ lastWarmingLabel }}</span><span class="pd-stat__lbl">último warming</span></div>
+          </div>
+
           <div v-if="warmingForm.enabled" class="pd-warming__body">
             <label class="pd-field pd-field--inline">
               <span class="pd-field__label">Intensidade</span>
@@ -261,6 +273,7 @@ export default {
       warmingInit: false,
       savingWarming: false,
       warmingError: '',
+      warmingStats: null,
     };
   },
 
@@ -274,6 +287,15 @@ export default {
     },
     hasWarmingOnly() {
       return this.phones.some((p) => p.warming_only);
+    },
+    successPct() {
+      const r = this.warmingStats?.success_rate_24h;
+      return r == null ? '—' : Math.round(r * 100) + '%';
+    },
+    lastWarmingLabel() {
+      const t = this.warmingStats?.last_warming_at;
+      if (!t) return '—';
+      return new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     },
     // Repassado às telas de QR/chat pra que o "voltar" retorne a este projeto.
     backSuffix() {
@@ -299,6 +321,9 @@ export default {
         if (!this.warmingInit) {
           this.syncWarmingForm();
           this.warmingInit = true;
+        }
+        if (this.project.warming_enabled || this.project.warming_paused_at) {
+          this.fetchWarmingStats();
         }
       } catch (e) {
         if (e?.response?.status === 404) this.notFound = true;
@@ -430,6 +455,27 @@ export default {
         this.syncWarmingForm(); // volta o toggle ao estado real em caso de erro
       } finally {
         this.savingWarming = false;
+      }
+    },
+
+    async fetchWarmingStats() {
+      try {
+        const { data } = await axios.get(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/warming-stats`);
+        this.warmingStats = data;
+      } catch (e) {
+        /* stats são best-effort; não quebram a tela */
+      }
+    },
+    async resumeWarming() {
+      if (!window.confirm('Reativar o aquecimento deste projeto? Confirme que o telefone que caiu já foi resolvido.')) return;
+      this.busy = true;
+      try {
+        await axios.post(`/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/warming-resume`);
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao reativar: ' + this.errMsg(e));
+      } finally {
+        this.busy = false;
       }
     },
 
@@ -569,6 +615,11 @@ export default {
 .pd-warming__hint { margin: 4px 0 0; font-size: 12px; color: var(--wpg-muted); }
 .pd-warming__body { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--wpg-line); }
 .pd-warming__error { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 8px 12px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
+.pd-warming__paused { margin-top: 12px; background: var(--wpg-err-soft); color: var(--wpg-err); padding: 10px 14px; border-radius: 8px; font-size: 13px; border: 1px solid rgba(248,113,113,0.3); }
+.pd-warming__stats { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--wpg-line); }
+.pd-stat { display: flex; flex-direction: column; }
+.pd-stat__num { font-size: 20px; font-weight: 800; color: var(--wpg-ink); line-height: 1.1; }
+.pd-stat__lbl { font-size: 11px; color: var(--wpg-muted); margin-top: 2px; }
 .pd-field--inline { margin-bottom: 0; }
 .pd-field--inline select, .pd-field--inline input { padding: 8px 10px; border: 1px solid var(--wpg-line); border-radius: 10px; font-size: 14px; font-family: inherit; background: var(--wpg-bg); color: var(--wpg-ink); outline: none; }
 .pd-field--inline input[type="number"] { width: 90px; }

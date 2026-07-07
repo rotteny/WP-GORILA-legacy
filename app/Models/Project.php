@@ -27,13 +27,15 @@ class Project extends Model
         'failover_webhook_secret',
         'warming_enabled',
         'warming_config',
+        'warming_paused_at',
     ];
 
     protected $hidden = ['failover_webhook_secret'];
 
     protected $casts = [
-        'warming_enabled' => 'boolean',
-        'warming_config'  => 'array',
+        'warming_enabled'   => 'boolean',
+        'warming_config'    => 'array',
+        'warming_paused_at' => 'datetime',
     ];
 
     /** Config efetiva do aquecimento: defaults sobrescritos pelo que o projeto salvou. */
