@@ -102,6 +102,11 @@
                   {{ phone.name }}
                   <span v-if="project.active_instance_id === phone.id" class="pd-tag-active">ATIVO</span>
                   <span v-if="phone.warming_only" class="pd-tag-warming" title="Chip dedicado ao aquecimento — não envia mensagens externas">🔥 aquecimento</span>
+                  <span
+                    v-if="phone.warming_ramp && phone.warming_ramp.ramping"
+                    class="pd-tag-ramp"
+                    title="Chip novo em aquecimento gradual — assume tráfego real só ao fim da rampa"
+                  >Aquecendo (dia {{ phone.warming_ramp.day }}/{{ phone.warming_ramp.total_days }})</span>
                 </div>
                 <div class="pd-phone__slug">{{ phone.slug }}</div>
               </div>
@@ -123,6 +128,12 @@
                   :disabled="busy"
                   @click="promote(phone)"
                 >Tornar ativo</button>
+                <button
+                  v-if="phone.warming_ramp && phone.warming_ramp.ramping"
+                  class="pd-btn pd-btn--xs pd-btn--ghost"
+                  :disabled="busy"
+                  @click="skipRamp(phone)"
+                >Pular aquecimento</button>
                 <label class="pd-warmtoggle" title="Usar este telefone apenas para aquecimento">
                   <input
                     type="checkbox"
@@ -422,6 +433,23 @@ export default {
       }
     },
 
+    // Override "Pular aquecimento": chip vai direto pra 100%, sai da rampa.
+    async skipRamp(phone) {
+      if (!window.confirm(`Pular o aquecimento de '${phone.name}'? Ele passa a operar em 100% imediatamente.`)) return;
+      this.busy = true;
+      try {
+        await axios.patch(
+          `/api/whatsapp/projects/${encodeURIComponent(this.projectSlug)}/instances/${encodeURIComponent(phone.slug)}`,
+          { warming_skip_ramp: true },
+        );
+        await this.fetchProject();
+      } catch (e) {
+        alert('Falha ao pular aquecimento: ' + this.errMsg(e));
+      } finally {
+        this.busy = false;
+      }
+    },
+
     // Alterna o papel warming-only. Ligar num telefone que é o ativo pede confirmação
     // (vai forçar failover); nos demais casos aplica direto.
     toggleWarmingOnly(phone) {
@@ -529,6 +557,7 @@ export default {
 .pd-phone__slug { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; color: var(--wpg-muted); }
 .pd-tag-active { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: #c4b5fd; background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; }
 .pd-tag-warming { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-warn); background: var(--wpg-warn-soft); padding: 2px 6px; border-radius: 4px; }
+.pd-tag-ramp { font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--wpg-brand); background: var(--wpg-brand-soft); padding: 2px 6px; border-radius: 4px; }
 .pd-phone__actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pd-warmtoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--wpg-muted); cursor: pointer; user-select: none; padding: 0 4px; }
 .pd-warmtoggle input { cursor: pointer; margin: 0; }

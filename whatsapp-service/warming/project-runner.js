@@ -79,7 +79,12 @@ class ProjectRunner {
       .map((m) => {
         const st = this.ctx.instances.get(m.slug);
         return st && st.status === 'CONNECTED' && st.sock
-          ? { slug: m.slug, warming_only: !!m.warming_only }
+          ? {
+              slug: m.slug,
+              warming_only: !!m.warming_only,
+              // Fração da rampa (Fase 3): 0.2..1.0; default 1 pra chip sem rampa.
+              ramp_fraction: typeof m.ramp_fraction === 'number' ? m.ramp_fraction : 1,
+            }
           : null;
       })
       .filter(Boolean);
@@ -105,7 +110,10 @@ class ProjectRunner {
       try {
         if (this._inWindow()) {
           const pair = this.graph.pick(this._liveConnected());
-          if (pair) sentCount = await this._runThread(pair);
+          // Rampa individual (Fase 3): um chip novo (fraction < 1) inicia menos
+          // threads. Ex.: dia 1 (0.2) abre thread só em ~20% dos ciclos → ~20% do volume.
+          const frac = pair && typeof pair.sender.ramp_fraction === 'number' ? pair.sender.ramp_fraction : 1;
+          if (pair && Math.random() <= frac) sentCount = await this._runThread(pair);
         }
       } catch (err) {
         this.ctx.logger.warn({ project: this.slug, err: err.message }, 'warming: thread falhou');

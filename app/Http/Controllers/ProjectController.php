@@ -133,6 +133,8 @@ class ProjectController extends Controller
                 'name'       => $data['name'],
                 'status'     => 'INITIALIZING',
                 'priority'   => $priority,
+                // Chip novo num projeto com warming ligado começa a rampa agora.
+                'warming_started_at' => $project->warming_enabled ? now() : null,
             ]);
         }
 
@@ -190,14 +192,16 @@ class ProjectController extends Controller
         }
 
         $data = $request->validate([
-            'warming_only' => ['required', 'boolean'],
+            'warming_only'      => ['sometimes', 'boolean'],
+            'warming_skip_ramp' => ['sometimes', 'boolean'], // override "Pular aquecimento"
         ]);
 
-        if ($data['warming_only'] && $project->active_instance_id === $instance->id) {
+        // Ativar warming_only no telefone ativo força failover antes de setar a flag.
+        if (($data['warming_only'] ?? false) && $project->active_instance_id === $instance->id) {
             $this->failover->failover($project, $instance, 'warming_only_toggle');
         }
 
-        $instance->update(['warming_only' => $data['warming_only']]);
+        $instance->update($data);
 
         return response()->json($project->fresh(['instances', 'activeInstance']));
     }

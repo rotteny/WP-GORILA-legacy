@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Instance;
 use App\Models\Project;
 use App\Models\WarmingEvent;
 use Illuminate\Http\JsonResponse;
@@ -36,8 +37,10 @@ class WarmingController extends Controller
                 'slug'      => $p->slug,
                 'config'    => $p->effectiveWarmingConfig(),
                 'instances' => $p->instances->map(fn ($i) => [
-                    'slug'         => $i->slug,
-                    'warming_only' => (bool) $i->warming_only,
+                    'slug'          => $i->slug,
+                    'warming_only'  => (bool) $i->warming_only,
+                    // Fração da rampa (0.2..1.0): o Node reduz o volume do chip novo.
+                    'ramp_fraction' => $i->warmingRamp()['fraction'],
                 ])->values(),
             ])
             // Precisa de >= 2 instâncias conectadas pra ter par de conversa.
@@ -97,5 +100,25 @@ class WarmingController extends Controller
             ->get();
 
         return response()->json(['project' => $project->slug, 'events' => $events]);
+    }
+
+    /**
+     * Estado da rampa de aquecimento de uma instância (em que fase da rampa está).
+     * Consulta pelo painel.
+     */
+    public function status(Instance $instance): JsonResponse
+    {
+        $ramp = $instance->warmingRamp();
+
+        return response()->json([
+            'slug'               => $instance->slug,
+            'warming_only'       => (bool) $instance->warming_only,
+            'warming_started_at' => $instance->warming_started_at,
+            'warming_skip_ramp'  => (bool) $instance->warming_skip_ramp,
+            'ramping'            => $ramp['ramping'],
+            'day'                => $ramp['day'],
+            'total_days'         => $ramp['total_days'],
+            'fraction'           => $ramp['fraction'],
+        ]);
     }
 }
