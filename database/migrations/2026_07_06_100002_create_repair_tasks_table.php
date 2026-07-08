@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('instance_slug', 60);
             // Ciphertext do Crypt::encryptString — pode passar de 255. Usar text.
             $table->text('pairing_code');
-            // string em vez de enum pra portabilidade sqlite/pgsql. Valores: pending, dispatched, success, failed.
+            // string em vez de enum pra portabilidade sqlite/pgsql. Valores: pending, dispatched, success, failed, expired.
             $table->string('status', 20)->default('pending');
             $table->string('dispatched_to', 100)->nullable();
             $table->timestamp('dispatched_at')->nullable();

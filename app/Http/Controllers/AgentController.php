@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ApiKey;
 use App\Models\CockpitHeartbeat;
 use App\Models\RepairTask;
+use App\Services\RepairTaskHousekeeper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -15,11 +16,12 @@ use Illuminate\Support\Facades\Log;
  */
 class AgentController extends Controller
 {
-    /** Máximo tempo que uma task fica `dispatched` sem retorno antes de voltar a `pending`. */
-    private const DISPATCH_TIMEOUT_MINUTES = 3;
-
     /** Após N falhas seguidas, escalar (por ora só loga; ver ponytail comment). */
     private const FAILURE_ESCALATION_THRESHOLD = 3;
+
+    public function __construct(private readonly RepairTaskHousekeeper $housekeeper)
+    {
+    }
 
     /**
      * GET /api/whatsapp/agent/tasks
@@ -31,16 +33,10 @@ class AgentController extends Controller
         /** @var ApiKey $apiKey */
         $apiKey = $request->attributes->get('cockpit_key');
 
-        // Housekeeping: tasks dispatched há muito tempo voltam pra pendente.
-        // ponytail: feito inline em vez de cron. Trocar por scheduled job se virar hot.
-        RepairTask::where('status', 'dispatched')
-            ->where('dispatched_at', '<', now()->subMinutes(self::DISPATCH_TIMEOUT_MINUTES))
-            ->update([
-                'status'         => 'pending',
-                'attempt'        => DB::raw('attempt + 1'),
-                'dispatched_to'  => null,
-                'dispatched_at'  => null,
-            ]);
+        // Housekeeping inline: tasks dispatched órfãs voltam pra pending ou viram
+        // `expired` se passaram do cap. Também rodado por scheduled command
+        // `agent:expire-stale` — inline aqui garante freshness sem depender do cron.
+        $this->housekeeper->handleStaleTasks();
 
         $task = DB::transaction(function () use ($apiKey) {
             $query = RepairTask::query()
