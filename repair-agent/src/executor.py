@@ -11,12 +11,14 @@ from src.adb import AdbClient
 from src.audit import save_screenshot
 from src.constants import (
     DELAY_AFTER_HOME,
+    DELAY_AFTER_KILL,
     DELAY_AFTER_TYPE,
     DELAY_APP_LAUNCH,
     DELAY_LINK_BTN,
     DELAY_LINK_VIA_NUMBER,
     DELAY_LINKED_DEVICES,
     DELAY_MENU_OPEN,
+    DELAY_SETTINGS_OPEN,
     DELAY_SWITCH_ACCOUNT,
     DELAY_WAIT_CONNECTION,
 )
@@ -71,12 +73,21 @@ class RepairExecutor:
     async def _open_correct_account(
         self, adb: AdbClient, resolved: ResolvedAccount, coords: dict
     ) -> None:
+        # Force-stop antes de launch pra garantir que abrimos na home do app —
+        # senao uma tela intermediaria deixada pelo run anterior (dialog, tela
+        # de codigo, linked devices) desalinha todos os taps subsequentes.
+        await adb.kill_app(resolved.package)
+        await asyncio.sleep(DELAY_AFTER_KILL)
         await adb.launch_app(resolved.package)
         await asyncio.sleep(DELAY_APP_LAUNCH)
 
         if resolved.account.slot > 1:
+            # Fluxo v2.26+: menu 3-pontinhos -> Configuracoes -> tap no nome do
+            # usuario (abre bottom sheet de contas) -> tap na conta desejada.
             await adb.tap(**coords["menu_button"])
             await asyncio.sleep(DELAY_MENU_OPEN)
+            await adb.tap(**coords["settings_menu"])
+            await asyncio.sleep(DELAY_SETTINGS_OPEN)
             await adb.tap(**coords["switch_account"])
             await asyncio.sleep(DELAY_MENU_OPEN)
             await adb.tap(**coords[f"account_slot_{resolved.account.slot}"])

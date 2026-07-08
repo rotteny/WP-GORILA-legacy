@@ -3,8 +3,10 @@
 # Delays (segundos) usados na sequencia ADB — casam com docs/repair-agent-python-plan.md §15.
 DELAY_AFTER_WAKEUP = 0.5
 DELAY_AFTER_HOME = 0.5
+DELAY_AFTER_KILL = 1.0
 DELAY_APP_LAUNCH = 3.0
 DELAY_MENU_OPEN = 1.0
+DELAY_SETTINGS_OPEN = 1.5
 DELAY_SWITCH_ACCOUNT = 2.0
 DELAY_LINKED_DEVICES = 2.0
 DELAY_LINK_BTN = 1.0

@@ -72,9 +72,12 @@ class AdbClient:
         await self._run(["shell", "rm", remote])
 
     async def unlock_screen(self) -> None:
+        # WAKEUP is idempotent (no-op if screen is already on) and dismiss-keyguard
+        # removes the swipe-only lock screen. On devices with PIN/pattern this
+        # will do nothing — cockpit devices must be configured without PIN.
         await self.key("WAKEUP")
         await asyncio.sleep(0.5)
-        await self.key("MENU")
+        await self._run(["shell", "wm", "dismiss-keyguard"])
 
     async def is_connected(self) -> bool:
         try:

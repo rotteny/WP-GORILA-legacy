@@ -47,9 +47,9 @@ class AgentHttpClient:
                 resp = await self._client.get("/api/whatsapp/agent/tasks")
 
         assert resp is not None
-        if resp.status_code == 204:
-            return None
         resp.raise_for_status()
+        if not resp.content:
+            return None
 
         payload = resp.text
         signature = resp.headers.get("X-Wpg-Signature")

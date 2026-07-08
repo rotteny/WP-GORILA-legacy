@@ -1,14 +1,37 @@
-# Samsung Galaxy A70
-# Resolucao: 1080x2340, ~385dpi, 6.7"
-# Android 9 original -> upgrade ate Android 11 (One UI 3.1).
+# Samsung Galaxy A70 (SM-A705MN)
+# Resolucao real: 1080x2400, density 420dpi, One UI (Android 11).
+# Calibrado com WhatsApp v2.26.23.74 em 2026-07-08.
 #
-# ATENCAO: valores abaixo sao PALPITE inicial baseado em proporcao 1080x2400.
-# Rodar `python scripts/calibrate.py <device_id>` no A70 real, abrir o PNG
-# gerado e substituir estas coordenadas antes de tirar do dry_run.
-menu_button:       { x: 1010, y: 180 }
-switch_account:    { x: 540,  y: 1540 }
-account_slot_1:    { x: 540,  y: 1710 }
-account_slot_2:    { x: 540,  y: 1820 }
-linked_devices:    { x: 540,  y: 1180 }
-link_device_btn:   { x: 540,  y: 1400 }
-link_via_number:   { x: 540,  y: 1610 }
+# NOTA — fluxo multi-conta na v2.26+:
+# O item "Trocar conta" saiu do menu principal (3 pontinhos) e agora fica em
+# Configuracoes. Fluxo executor.py (slot > 1):
+#   1. tap menu_button (3 pontinhos)
+#   2. tap settings_menu (item "Configuracoes" no popup)
+#   3. tap switch_account (nome do usuario na tela de Configuracoes; abre
+#      bottom sheet com contas + "Adicionar conta")
+#   4. tap account_slot_N (conta desejada dentro do bottom sheet)
+
+# Home do WhatsApp: 3 pontinhos no topo direito.
+menu_button:       { x: 990,  y: 150 }
+
+# Item "Configuracoes" no menu popup (ultimo item, aparece apos tap em menu_button).
+settings_menu:     { x: 760,  y: 1190 }
+
+# ATENCAO: switch_account presume que a tela ja esta em Configuracoes.
+# Coord aponta pro nome do usuario, que abre o bottom sheet de contas.
+switch_account:    { x: 540,  y: 726 }
+
+# Contas dentro do bottom sheet aberto por switch_account.
+# slot_1 = primeira conta da lista, slot_2 = segunda conta.
+# Com apenas 1 conta cadastrada, slot_2 fica em cima do "+ Adicionar conta".
+account_slot_1:    { x: 540,  y: 2100 }
+account_slot_2:    { x: 540,  y: 2316 }
+
+# Item "Dispositivos conectados" no menu popup (3 pontinhos aberto).
+linked_devices:    { x: 760,  y: 686 }
+
+# Botao verde "Conectar dispositivo" na tela Dispositivos conectados.
+link_device_btn:   { x: 540,  y: 1968 }
+
+# Link "Conectar com numero de telefone" no rodape da tela do QR code.
+link_via_number:   { x: 540,  y: 2262 }
